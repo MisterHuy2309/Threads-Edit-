@@ -1,0 +1,32 @@
+# Virtual Environment (BẮT BUỘC CHẶN)
+venv/
+**/venv/
+.venv/
+**/.venv/
+env/
+**/__pycache__/
+*.pyc
+
+# Node Modules
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+build/
+dist/
+
+# File tạm render & media
+backend/output/
+backend/temp_render/
+backend/media/
+media/
+output/
+temp_render/
+*.exe
+*.mp4
+
+# Environment & Editor
+.env*
+.vscode/
+.idea/
