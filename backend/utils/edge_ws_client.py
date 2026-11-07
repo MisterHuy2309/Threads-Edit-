@@ -1,58 +1,85 @@
 import os
+import re
+import ssl
 import asyncio
+import random
 import edge_tts
-from gtts import gTTS
+from typing import Optional
+from utils.proxy_checker import get_alive_proxies
 
-async def synthesize_via_websocket(text: str, voice: str, output_path: str, rate: str = "+0%", pitch: str = "+0Hz"):
-    """
-    Tạo audio thông qua Edge-TTS với cơ chế bảo vệ kép:
-    1. Chuẩn hóa tham số (tránh lỗi No audio was received do pitch không tương thích)
-    2. Tự động fallback sang Google TTS nếu Microsoft tạm khóa kết nối
-    """
-    clean_text = text.strip()
+# Bỏ qua xác thực SSL cho các proxy trung gian
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except Exception:
+    pass
+
+def clean_text_for_ssml(text: str) -> str:
+    if not text:
+        return ""
+    clean = re.sub(r'[\r\n]+', '. ', text)
+    clean = re.sub(r'[<>&"\']', '', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
+
+async def synthesize_via_websocket(
+    text: str,
+    voice: str = "vi-VN-NamMinhNeural",
+    output_path: str = "",
+    rate: str = "+0%",
+    pitch: str = "+0Hz",
+    volume: str = "+0%",
+    max_retries: int = 4
+):
+    clean_text = clean_text_for_ssml(text)
     if not clean_text:
-        raise ValueError("Văn bản rỗng")
+        raise ValueError("Văn bản rỗng sau khi làm sạch.")
 
-    # Đảm bảo rate có định dạng hợp lệ
-    r = rate.strip() if rate else "+0%"
-    if not (r.startswith("+") or r.startswith("-")):
-        r = f"+{r}"
-    if not r.endswith("%"):
-        r = f"{r}%"
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # Edge TTS tiếng Việt chỉ ổn định tuyệt đối khi pitch là +0Hz
-    p = "+0Hz"
+    alive_proxies = await get_alive_proxies()
+    
+    # Ưu tiên Direct IP đầu tiên, sau đó mới đến các proxy sống
+    candidate_proxies = [None]
+    external = [p for p in alive_proxies if p is not None]
+    candidate_proxies.extend(external)
 
-    # TẦNG 1: Edge-TTS Native Async
-    try:
-        comm = edge_tts.Communicate(text=clean_text, voice=voice, rate=r, pitch=p)
-        await comm.save(output_path)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            return True
-    except Exception as edge_err:
-        print(f"[Edge-TTS Error: {edge_err}] -> Kích hoạt Fallback an toàn...")
+    last_error = None
 
-    # TẦNG 2: Thử lại Edge-TTS với cấu hình mặc định (rate="+0%", pitch="+0Hz")
-    try:
-        comm = edge_tts.Communicate(text=clean_text, voice=voice)
-        await comm.save(output_path)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            print("[Edge-TTS] Khôi phục thành công với cấu hình mặc định!")
-            return True
-    except Exception:
-        pass
+    for attempt in range(max_retries):
+        current_proxy = candidate_proxies[attempt % len(candidate_proxies)]
+        display_label = current_proxy if current_proxy else "Direct IP"
+        print(f"[TTS Attempt {attempt + 1}/{max_retries}] Đang tạo voice qua: {display_label}")
 
-    # TẦNG 3: Fallback Google TTS (Không bao giờ lỗi 403, đảm bảo có audio)
-    print("[Fallback] Chuyển hướng sang Google TTS Engine...")
-    try:
-        lang_code = "vi" if "vi-VN" in voice or "nam" in voice or "hoaimy" in voice else "en"
-        tts = gTTS(text=clean_text, lang=lang_code, slow=False)
-        # Chạy trong executor để không block event loop
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, tts.save, output_path)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            return True
-    except Exception as gtts_err:
-        raise RuntimeError(f"Tất cả engine TTS đều thất bại: {gtts_err}")
+        try:
+            communicate = edge_tts.Communicate(
+                text=clean_text,
+                voice=voice,
+                rate=rate,
+                volume=volume,
+                pitch=pitch,
+                proxy=current_proxy
+            )
 
-    return False
+            # Đặt timeout tối đa 8 giây cho mỗi lượt thử
+            await asyncio.wait_for(communicate.save(output_path), timeout=8.0)
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+                print(f"[TTS Success] Xuất voice thành công qua {display_label}!")
+                await asyncio.sleep(random.uniform(0.4, 0.8))
+                return output_path
+            else:
+                raise IOError("Không nhận được dữ liệu âm thanh hợp lệ.")
+
+        except Exception as err:
+            last_error = err
+            print(f"[TTS Warning] {display_label} gặp lỗi: {err}")
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except Exception:
+                    pass
+            
+            # Thời gian nghỉ giãn cách giữa các lần thử
+            await asyncio.sleep(1.2)
+
+    raise RuntimeError(f"Edge-TTS không thể xuất audio sau các lượt thử: {last_error}")

@@ -1,6 +1,24 @@
 import os
 import tempfile
 
+# ÉP TOÀN BỘ TIẾN TRÌNH MOVIEPY / FFMPEG DÙNG TEMP Ổ D ĐỂ KHÔNG ĐẦY Ổ C
+CUSTOM_TEMP_DIR = r"D:\render_temp"
+os.makedirs(CUSTOM_TEMP_DIR, exist_ok=True)
+os.environ["TEMP"] = CUSTOM_TEMP_DIR
+os.environ["TMP"] = CUSTOM_TEMP_DIR
+tempfile.tempdir = CUSTOM_TEMP_DIR
+
+# XỬ LÝ LỖI PIL ĐỌC ẢNH SCREENSHOT BỊ TRÀN RAM / ĐỨT STREAM
+try:
+    from PIL import Image, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    Image.MAX_IMAGE_PIXELS = None
+except Exception:
+    pass
+
+import os
+import tempfile
+
 # ÉP TOÀN BỘ TIẾN TRÌNH PYTHON VÀ THƯ VIỆN GHI TẠM VÀO Ổ D
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMP_DIR = os.path.join(BASE_DIR, "temp_render")

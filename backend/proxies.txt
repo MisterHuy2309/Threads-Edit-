@@ -1,0 +1,4 @@
+# Danh sach proxy song nhanh
+direct
+http://139.59.1.14:8080
+http://157.15.40.253:7777
