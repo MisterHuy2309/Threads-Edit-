@@ -14,11 +14,13 @@ import { Header } from "@/components/Header";
 import { PreviewPlayer } from "@/components/PreviewPlayer";
 import { Inspector } from "@/components/Inspector";
 import { Timeline } from "@/components/Timeline";
+import { CoverMaker } from "@/components/CoverMaker";
+import { WatermarkStudio } from "@/components/WatermarkStudio";
 import { VoiceTab } from "@/components/tabs/VoiceTab";
 import { TopicsTab } from "@/components/tabs/TopicsTab";
 import { BackgroundTab } from "@/components/tabs/BackgroundTab";
 import { AssetsTab } from "@/components/tabs/AssetsTab";
-import { Mic, Image as ImageIcon, Video, Sparkles, X, Film, CheckCircle2, Download } from "lucide-react";
+import { Mic, Image as ImageIcon, Video, Sparkles, X, Film, CheckCircle2, Download, ShieldCheck, Move, Eye, EyeOff } from "lucide-react";
 
 interface TimelineSnapshot {
   bgClips: BgClipItem[];
@@ -31,6 +33,8 @@ interface TimelineSnapshot {
 
 export default function CapCutThreadsStudio() {
   const API_BASE = "http://localhost:8000";
+
+  const [currentView, setCurrentView] = useState<"editor" | "cover_maker" | "watermark_studio">("editor");
 
   const [leftTab, setLeftTab] = useState<"topics" | "tts" | "bg" | "assets">("tts");
   const [inspectorTab, setInspectorTab] = useState<"video" | "audio">("audio");
@@ -68,6 +72,16 @@ export default function CapCutThreadsStudio() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+
+  // ĐIỀU KHIỂN WATERMARK RUNTIME TRÊN VIDEO
+  const [enableWatermark, setEnableWatermark] = useState<boolean>(true);
+  const [watermarkStyle, setWatermarkStyle] = useState<"W1" | "W2" | "W3">("W1");
+  const [watermarkText, setWatermarkText] = useState<string>("soichibiettuot");
+  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(0.9);
+  const [watermarkScale, setWatermarkScale] = useState<number>(1.0);
+  const [watermarkPos, setWatermarkPos] = useState<{ x: number; y: number }>({ x: 20, y: 25 });
+  const [isDraggingWm, setIsDraggingWm] = useState<boolean>(false);
+  const dragWmStart = useRef<{ mouseX: number; mouseY: number; initX: number; initY: number }>({ mouseX: 0, mouseY: 0, initX: 0, initY: 0 });
 
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [exportRes, setExportRes] = useState<"1080p" | "2k" | "4k">("1080p");
@@ -179,10 +193,7 @@ export default function CapCutThreadsStudio() {
 
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef<{ mouseX: number; mouseY: number; initialX: number; initialY: number }>({
-    mouseX: 0,
-    mouseY: 0,
-    initialX: 0,
-    initialY: 0,
+    mouseX: 0, mouseY: 0, initialX: 0, initialY: 0,
   });
 
   const baseScale = 320 / 1080;
@@ -567,6 +578,40 @@ export default function CapCutThreadsStudio() {
     };
   }, [isDragging, activeBlock, zoomScale, baseScale]);
 
+  // KÉO THẢ DI CHUYỂN WATERMARK
+  const handleMouseDownOnWatermark = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsDraggingWm(true);
+    dragWmStart.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initX: watermarkPos.x,
+      initY: watermarkPos.y,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMoveWm = (e: MouseEvent) => {
+      if (!isDraggingWm) return;
+      const deltaX = e.clientX - dragWmStart.current.mouseX;
+      const deltaY = e.clientY - dragWmStart.current.mouseY;
+      setWatermarkPos({
+        x: Math.max(0, Math.min(260, dragWmStart.current.initX + deltaX)),
+        y: Math.max(0, Math.min(520, dragWmStart.current.initY + deltaY)),
+      });
+    };
+    const handleMouseUpWm = () => { if (isDraggingWm) setIsDraggingWm(false); };
+    if (isDraggingWm) {
+      window.addEventListener("mousemove", handleMouseMoveWm);
+      window.addEventListener("mouseup", handleMouseUpWm);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMoveWm);
+      window.removeEventListener("mouseup", handleMouseUpWm);
+    };
+  }, [isDraggingWm]);
+
   const handleStartExportVideo = async () => {
     if (bgClips.length === 0 && blocks.length === 0) {
       alert("Vui lòng thêm ít nhất 1 video nền hoặc 1 ảnh comment vào timeline!");
@@ -681,17 +726,27 @@ export default function CapCutThreadsStudio() {
     }
   };
 
+  if (currentView === "cover_maker") {
+    return <CoverMaker onBack={() => setCurrentView("editor")} />;
+  }
+  if (currentView === "watermark_studio") {
+    return <WatermarkStudio onBack={() => setCurrentView("editor")} />;
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 font-sans select-none overflow-hidden">
       <Header
         showTimeline={showTimeline}
         setShowTimeline={setShowTimeline}
         handleRenderTimeline={() => setShowExportModal(true)}
+        onOpenCoverMaker={() => setCurrentView("cover_maker")}
+        onOpenWatermarkStudio={() => setCurrentView("watermark_studio")}
         isRendering={isRendering}
         hasBlocks={blocks.length > 0 || bgClips.length > 0}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      {/* KHUNG GIỮA: MỞ RỘNG CON LĂN TRỤC DỌC TOÀN BỘ (ĐÃ FIX MẤT CON LĂN) */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* TABS TRÁI */}
         <div className="w-[340px] border-r border-slate-800/80 bg-slate-900/30 flex flex-col shrink-0 h-full overflow-hidden">
           <div className="flex border-b border-slate-800/80 bg-slate-950/60 text-xs shrink-0">
@@ -796,32 +851,160 @@ export default function CapCutThreadsStudio() {
           </div>
         </div>
 
-        {/* PREVIEW PLAYER */}
-        <PreviewPlayer
-          selectedBg={currentActiveBgClip?.url || ""}
-          previewActiveBlock={previewActiveBlock}
-          baseScale={baseScale}
-          zoomScale={zoomScale}
-          setZoomScale={setZoomScale}
-          showZoomPanel={showZoomPanel}
-          setShowZoomPanel={setShowZoomPanel}
-          isDragging={isDragging}
-          handleMouseDownOnImage={handleMouseDownOnImage}
-          handleWheelZoom={handleWheelZoom}
-          renderedUrl={renderedUrl}
-          currentTime={currentTime}
-          totalDuration={totalDuration}
-          isPlaying={isPlaying}
-          setIsPlaying={setIsPlaying}
-          setBlocks={setBlocks}
-          bgStartTime={currentActiveBgClip?.startTime || 0}
-          bgDuration={currentActiveBgClip?.duration || 10}
-          bgTrimStart={currentActiveBgClip?.trimStart || 0}
-          memeImageList={memeImageList}
-          setMemeImageList={setMemeImageList}
-          selectedMemeId={selectedMemeId}
-          setSelectedMemeId={setSelectedMemeId}
-        />
+        {/* PREVIEW PLAYER: BẬT OVERFLOW-Y-AUTO ĐỂ LUÔN CÓ CON LĂN CUỘN MƯỢT MÀ */}
+        <div className="flex-1 relative flex flex-col items-center overflow-y-auto overflow-x-hidden p-3 min-h-0">
+          {/* THANH ĐIỀU KHIỂN WATERMARK: CÓ NÚT BẬT/TẮT, CHỌN KIỂU W1/W2/W3 VÀ SLIDER */}
+          <div className="sticky top-0 z-40 mb-2 flex items-center gap-2 bg-slate-900/95 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full shadow-2xl text-xs shrink-0">
+            <button
+              onClick={() => setEnableWatermark(!enableWatermark)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-bold transition ${
+                enableWatermark ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/50" : "bg-slate-800 text-slate-400"
+              }`}
+            >
+              {enableWatermark ? <Eye size={13} /> : <EyeOff size={13} />}
+              <span>{enableWatermark ? "Watermark Bật" : "Watermark Tắt"}</span>
+            </button>
+
+            {enableWatermark && (
+              <>
+                <div className="h-3 w-[1px] bg-slate-800" />
+                {/* DROPDOWN CHỌN MẪU WATERMARK W1, W2, W3 */}
+                <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                  {(["W1", "W2", "W3"] as const).map((wm) => (
+                    <button
+                      key={wm}
+                      onClick={() => {
+                        setWatermarkStyle(wm);
+                        if (wm === "W1") setWatermarkText("soichibiettuot");
+                        else setWatermarkText("Sợi Chỉ Biết Tuốt");
+                      }}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                        watermarkStyle === wm ? "bg-emerald-600 text-white shadow" : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {wm}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="h-3 w-[1px] bg-slate-800" />
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-slate-400">Độ mờ:</span>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1.0}
+                    step={0.05}
+                    value={watermarkOpacity}
+                    onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
+                    className="w-14 accent-emerald-500 h-1 bg-slate-800 rounded cursor-pointer"
+                  />
+                  <span className="font-mono text-emerald-400 text-[10px] min-w-7">{Math.round(watermarkOpacity * 100)}%</span>
+                </div>
+
+                <div className="h-3 w-[1px] bg-slate-800" />
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-slate-400">Size:</span>
+                  <input
+                    type="range"
+                    min={0.6}
+                    max={1.6}
+                    step={0.1}
+                    value={watermarkScale}
+                    onChange={(e) => setWatermarkScale(Number(e.target.value))}
+                    className="w-14 accent-emerald-500 h-1 bg-slate-800 rounded cursor-pointer"
+                  />
+                  <span className="font-mono text-emerald-400 text-[10px] min-w-6">{watermarkScale}x</span>
+                </div>
+
+                <div className="h-3 w-[1px] bg-slate-800" />
+                <span className="text-[10px] text-amber-400 flex items-center gap-1 font-medium">
+                  <Move size={11} /> Kéo vị trí trên video
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="relative my-auto">
+            <PreviewPlayer
+              selectedBg={currentActiveBgClip?.url || ""}
+              previewActiveBlock={previewActiveBlock}
+              baseScale={baseScale}
+              zoomScale={zoomScale}
+              setZoomScale={setZoomScale}
+              showZoomPanel={showZoomPanel}
+              setShowZoomPanel={setShowZoomPanel}
+              isDragging={isDragging}
+              handleMouseDownOnImage={handleMouseDownOnImage}
+              handleWheelZoom={handleWheelZoom}
+              renderedUrl={renderedUrl}
+              currentTime={currentTime}
+              totalDuration={totalDuration}
+              isPlaying={isPlaying}
+              setIsPlaying={setIsPlaying}
+              setBlocks={setBlocks}
+              bgStartTime={currentActiveBgClip?.startTime || 0}
+              bgDuration={currentActiveBgClip?.duration || 10}
+              bgTrimStart={currentActiveBgClip?.trimStart || 0}
+              memeImageList={memeImageList}
+              setMemeImageList={setMemeImageList}
+              selectedMemeId={selectedMemeId}
+              setSelectedMemeId={setSelectedMemeId}
+            />
+
+            {/* WATERMARK OVERLAY KÉO THẢ TỰ DO */}
+            {enableWatermark && (
+              <div
+                onMouseDown={handleMouseDownOnWatermark}
+                style={{
+                  left: `${watermarkPos.x}px`,
+                  top: `${watermarkPos.y}px`,
+                  opacity: watermarkOpacity,
+                  transform: `scale(${watermarkScale * zoomScale})`,
+                  transformOrigin: "top left",
+                }}
+                className={`absolute z-40 cursor-grab active:cursor-grabbing select-none transition-shadow ${
+                  isDraggingWm ? "ring-2 ring-emerald-400 shadow-2xl rounded-full" : "hover:ring-1 hover:ring-white/50"
+                }`}
+              >
+                {/* W1 CHUẨN MẪU */}
+                {watermarkStyle === "W1" && (
+                  <div className="flex items-center gap-2 bg-[#1e222b]/95 backdrop-blur-md pl-1 pr-3 py-1 rounded-full border border-slate-700 shadow-2xl pointer-events-none">
+                    <div className="w-5 h-5 rounded-full bg-[#f97316] p-0.5 border border-white/50 shrink-0 overflow-hidden flex items-center justify-center">
+                      <img src="http://localhost:8000/media/mascots/mascot_m1.png" className="w-full h-full object-contain" />
+                    </div>
+                    <div className="flex items-center gap-1 leading-none">
+                      <span className="font-extrabold text-white text-[11px] tracking-wide">
+                        {watermarkText}
+                      </span>
+                      <svg className="w-2.5 h-2.5 text-[#0095f6] fill-current shrink-0" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
+                      </svg>
+                    </div>
+                  </div>
+                )}
+
+                {/* W2 CHUẨN MẪU: @ VÀNG NỔI BẬT */}
+                {watermarkStyle === "W2" && (
+                  <div className="flex items-center gap-1.5 text-white font-black text-xs drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)] pointer-events-none tracking-tight">
+                    <span className="font-mono text-[#f59e0b] text-base font-black">@</span>
+                    <span className="uppercase">{watermarkText}</span>
+                  </div>
+                )}
+
+                {/* W3 CHUẨN MẪU: RUY BĂNG CAM CÓ VIỀN TRẮNG */}
+                {watermarkStyle === "W3" && (
+                  <div className="relative inline-flex items-center pointer-events-none">
+                    <div className="absolute -bottom-0.5 -right-1 w-4 h-3 bg-[#16a34a] rounded-sm transform rotate-12 -z-10" />
+                    <div className="px-3 py-1 bg-gradient-to-r from-[#ea580c] to-[#f97316] text-white font-black text-[10px] rounded-xl shadow-xl border border-white uppercase tracking-wider transform rotate-[-2deg]">
+                      {watermarkText}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* INSPECTOR */}
         <Inspector
@@ -880,13 +1063,13 @@ export default function CapCutThreadsStudio() {
         />
       )}
 
-      {/* MODAL XUẤT BẢN VIDEO */}
+      {/* MODAL XUẤT VIDEO */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#16181d] border border-slate-700 w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-4">
+          <div className="bg-[#16181d] border border-slate-700 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <span className="font-bold text-slate-100 flex items-center gap-2">
-                <Film size={16} className="text-rose-500" /> Xuất Bản Video (Render)
+                <Film size={16} className="text-rose-500" /> Xuất Bản Video 9:16
               </span>
               {!isRendering && (
                 <button onClick={() => setShowExportModal(false)} title="Đóng (ESC)" className="text-slate-400 hover:text-white p-1 rounded-lg">
@@ -896,7 +1079,16 @@ export default function CapCutThreadsStudio() {
             </div>
 
             <div className="space-y-3">
-              <label className="text-slate-300 font-medium block text-xs">Chọn chất lượng độ phân giải:</label>
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                  <ShieldCheck size={14} className="text-emerald-400" /> Trạng thái Watermark:
+                </span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${enableWatermark ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}>
+                  {enableWatermark ? `Đang Bật (${watermarkStyle})` : "Đã Tắt"}
+                </span>
+              </div>
+
+              <label className="text-slate-300 font-medium block text-xs">Độ phân giải kết xuất:</label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { id: "1080p", label: "Full HD", res: "1080x1920" },
@@ -907,7 +1099,7 @@ export default function CapCutThreadsStudio() {
                     key={item.id}
                     disabled={isRendering}
                     onClick={() => setExportRes(item.id as any)}
-                    className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition ${
+                    className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition ${
                       exportRes === item.id
                         ? "bg-rose-600/20 border-rose-500 text-rose-300 shadow-lg shadow-rose-950"
                         : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"

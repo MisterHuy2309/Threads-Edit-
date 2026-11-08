@@ -116,3 +116,13 @@ export interface TimelineMemeImageItem {
   opacity?: number;
   groupId?: string;
 }
+
+export interface WatermarkConfig {
+  enabled: boolean;
+  style: "W1" | "W2" | "W3";
+  text: string;
+  opacity: number;
+  scale: number;
+  x: number;
+  y: number;
+}
