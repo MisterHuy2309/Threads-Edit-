@@ -1,4 +1,4 @@
-export interface BgData {
+﻿export interface BgData {
   name: string;
   url: string;
   type: string;
@@ -18,6 +18,8 @@ export interface BgClipItem {
   duration: number;
   maxDuration: number;
   trimStart: number;
+  speed?: number;
+  groupId?: string;
   thumbs: string[];
 }
 
@@ -29,7 +31,10 @@ export interface VoiceItem {
   startTime: number;
   duration: number;
   maxDuration: number;
-  groupId?: string; // ID dùng để khóa liên kết với ảnh comment
+  trimStart?: number;
+  speed?: number;
+  originalDuration?: number;
+  groupId?: string;
 }
 
 export interface GeneratedVoiceItem {
@@ -56,10 +61,14 @@ export interface TimelineBlock {
   startTime: number;
   duration: number;
   maxDuration?: number;
-  groupId?: string; // Khóa liên kết với voice
+  trimStart?: number;
+  groupId?: string;
   text?: string;
   voice?: string | GeneratedVoiceItem | null;
   speed?: number;
+  animation?: "none" | "fade" | "pop" | "slide_up";
+  borderRadius?: number;
+  opacity?: number;
   audio_path?: string;
   audio_url?: string;
   audioDuration?: number;
@@ -73,6 +82,7 @@ export interface MediaAssetItem {
   path?: string;
   duration?: number;
   maxDuration?: number;
+  type?: "image" | "video" | "audio";
 }
 
 export interface TimelineAudioItem {
@@ -82,8 +92,12 @@ export interface TimelineAudioItem {
   startTime: number;
   duration: number;
   maxDuration: number;
+  trimStart?: number;
+  speed?: number;
+  originalDuration?: number;
   type: "bgm" | "sound_effect";
   volume?: number;
+  groupId?: string;
 }
 
 export interface TimelineMemeImageItem {
@@ -92,7 +106,13 @@ export interface TimelineMemeImageItem {
   url: string;
   startTime: number;
   duration: number;
+  maxDuration?: number;
+  trimStart?: number;
   img_x: number;
   img_y: number;
   img_width: number;
+  type?: "image" | "video";
+  animation?: "none" | "fade" | "pop" | "slide_up";
+  opacity?: number;
+  groupId?: string;
 }

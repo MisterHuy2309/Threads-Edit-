@@ -17,7 +17,7 @@ os.makedirs(THUMB_DIR, exist_ok=True)
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
 def extract_filmstrip(video_path: str, thumb_folder: str, count: int = 12):
-    """Trích xuất 12 frame ảnh làm filmstrip chuẩn CapCut"""
+    """Trích xuất 12 frame ảnh filmstrip chuẩn CapCut, chống vỡ frame và lệch timestamp"""
     os.makedirs(thumb_folder, exist_ok=True)
     try:
         clip = VideoFileClip(video_path)
@@ -31,7 +31,9 @@ def extract_filmstrip(video_path: str, thumb_folder: str, count: int = 12):
         FFMPEG_EXE, "-y",
         "-i", video_path,
         "-vf", f"fps=1/{interval},scale=160:-1",
-        "-q:v", "4",
+        "-vsync", "vfr",
+        "-an",
+        "-q:v", "3",
         os.path.join(thumb_folder, "frame_%03d.jpg")
     ]
     try:
@@ -39,6 +41,27 @@ def extract_filmstrip(video_path: str, thumb_folder: str, count: int = 12):
     except Exception:
         pass
     return duration
+
+def optimize_video_for_web(input_path: str, output_path: str):
+    """Chuẩn hóa video về H.264 yuv420p và cố định keyframe để browser tua mượt mà không vỡ frame"""
+    cmd = [
+        FFMPEG_EXE, "-y",
+        "-i", input_path,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        "-g", "30",
+        "-keyint_min", "30",
+        "-sc_threshold", "0",
+        "-an",
+        output_path
+    ]
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return True
+    except Exception:
+        return False
 
 @router.get("/list")
 def list_backgrounds():
@@ -94,14 +117,30 @@ async def upload_background(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File không hợp lệ")
 
     safe_name = file.filename.replace(" ", "_")
+    raw_path = os.path.join(BG_DIR, f"raw_{safe_name}")
     final_path = os.path.join(BG_DIR, safe_name)
 
-    # Lưu DUY NHẤT 1 file gốc, KHÔNG render nhân bản file
-    with open(final_path, "wb") as buffer:
+    # Lưu tạm file tải lên ban đầu
+    with open(raw_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    # Re-encode chuẩn hóa H.264 YUV420P cố định GOP để không bao giờ vỡ hình trên browser
+    success = optimize_video_for_web(raw_path, final_path)
+    if not success or not os.path.exists(final_path):
+        shutil.move(raw_path, final_path)
+    else:
+        try:
+            os.remove(raw_path)
+        except Exception:
+            pass
 
     video_name = os.path.splitext(safe_name)[0]
     thumb_folder = os.path.join(THUMB_DIR, video_name)
+    
+    # Xóa thumb cũ nếu có để tạo lại filmstrip sạch
+    if os.path.exists(thumb_folder):
+        shutil.rmtree(thumb_folder, ignore_errors=True)
+
     duration = extract_filmstrip(final_path, thumb_folder)
 
     thumbs = []

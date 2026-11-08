@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Music, Volume2, Smile, Upload, Play, Pause, Plus, Trash2 } from "lucide-react";
+import { Music, Volume2, Smile, Upload, Play, Pause, Plus, Video } from "lucide-react";
 import { MediaAssetItem } from "@/types";
 
 interface AssetsTabProps {
@@ -14,7 +14,7 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
   onAddMemeImageToTimeline,
 }) => {
   const API_BASE = "http://localhost:8000";
-  const [subTab, setSubTab] = useState<"bgm" | "meme_audio" | "meme_img">("meme_audio");
+  const [subTab, setSubTab] = useState<"bgm" | "meme_audio" | "meme_img">("meme_img");
   const [assets, setAssets] = useState<{
     bgm: MediaAssetItem[];
     meme_audio: MediaAssetItem[];
@@ -65,7 +65,6 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
 
   return (
     <div className="flex flex-col h-full space-y-3 text-xs select-none overflow-hidden">
-      {/* 3 NÚT CHỌN LOẠI TÀI NGUYÊN */}
       <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 shrink-0">
         <button
           onClick={() => setSubTab("bgm")}
@@ -89,30 +88,27 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
             subTab === "meme_img" ? "bg-amber-600 text-white shadow" : "text-slate-400 hover:text-white"
           }`}
         >
-          <Smile size={12} /> Ảnh Meme
+          <Smile size={12} /> Ảnh/Video Meme
         </button>
       </div>
 
-      {/* UPLOAD TÀI NGUYÊN */}
       <div className="border border-dashed border-slate-800 rounded-lg p-2 text-center shrink-0">
         <input
           type="file"
           ref={fileInputRef}
           onChange={handleUploadAsset}
-          accept={subTab === "meme_img" ? "image/*" : "audio/*"}
+          accept={subTab === "meme_img" ? "image/*,video/*" : "audio/*"}
           className="hidden"
         />
         <button
           onClick={() => fileInputRef.current?.click()}
           className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium flex items-center justify-center gap-1.5 transition"
         >
-          <Upload size={13} /> Tải lên {subTab === "bgm" ? "BGM" : subTab === "meme_audio" ? "Meme Audio" : "Ảnh Meme"}
+          <Upload size={13} /> Tải lên {subTab === "bgm" ? "BGM" : subTab === "meme_audio" ? "Meme Audio" : "Ảnh/Video Meme"}
         </button>
       </div>
 
-      {/* DANH SÁCH TÀI NGUYÊN */}
       <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-0">
-        {/* TAB BGM */}
         {subTab === "bgm" &&
           assets.bgm.map((item, idx) => (
             <div
@@ -132,7 +128,7 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
                 </button>
                 <button
                   onClick={() => onAddAudioToTimeline && onAddAudioToTimeline(item, "bgm")}
-                  title="Thêm vào track Nhạc & FX"
+                  title="Thêm vào track BGM"
                   className="p-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition"
                 >
                   <Plus size={12} />
@@ -141,7 +137,6 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
             </div>
           ))}
 
-        {/* TAB MEME SOUND */}
         {subTab === "meme_audio" &&
           assets.meme_audio.map((item, idx) => (
             <div
@@ -161,7 +156,7 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
                 </button>
                 <button
                   onClick={() => onAddAudioToTimeline && onAddAudioToTimeline(item, "sound_effect")}
-                  title="Thêm vào track Nhạc & FX"
+                  title="Thêm vào track Meme Sound"
                   className="p-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition"
                 >
                   <Plus size={12} />
@@ -170,31 +165,41 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
             </div>
           ))}
 
-        {/* TAB ẢNH MEME */}
         {subTab === "meme_img" && (
           <div className="grid grid-cols-2 gap-2">
-            {assets.meme_images.map((img, idx) => (
-              <div
-                key={idx}
-                className="group relative bg-slate-900 border border-slate-800 hover:border-amber-400 rounded-lg p-1 transition overflow-hidden"
-              >
-                <img src={img.url} alt={img.name} className="w-full h-20 object-cover rounded pointer-events-none" />
-                <span className="text-[10px] text-slate-400 truncate block mt-1">{img.name}</span>
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <button
-                    onClick={() => onAddMemeImageToTimeline && onAddMemeImageToTimeline(img)}
-                    title="Gắn vào Timeline"
-                    className="p-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-full font-bold shadow"
-                  >
-                    <Plus size={13} />
-                  </button>
+            {assets.meme_images.map((img, idx) => {
+              const isVid = img.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(img.url);
+              return (
+                <div
+                  key={idx}
+                  className="group relative bg-slate-900 border border-slate-800 hover:border-amber-400 rounded-lg p-1 transition overflow-hidden"
+                >
+                  {isVid ? (
+                    <div className="relative w-full h-20 bg-black rounded overflow-hidden flex items-center justify-center">
+                      <video src={img.url} className="w-full h-full object-cover pointer-events-none" />
+                      <div className="absolute top-1 left-1 bg-amber-500 text-black px-1 rounded text-[9px] font-bold flex items-center gap-0.5">
+                        <Video size={10} /> Video
+                      </div>
+                    </div>
+                  ) : (
+                    <img src={img.url} alt={img.name} className="w-full h-20 object-cover rounded pointer-events-none" />
+                  )}
+                  <span className="text-[10px] text-slate-400 truncate block mt-1">{img.name}</span>
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <button
+                      onClick={() => onAddMemeImageToTimeline && onAddMemeImageToTimeline(img)}
+                      title="Gắn vào Timeline"
+                      className="p-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-full font-bold shadow"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
-
       <audio ref={audioPreviewRef} onEnded={() => setPlayingUrl(null)} className="hidden" />
     </div>
   );

@@ -356,7 +356,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
                 />
               ) : (
                 <p className="text-xs font-medium text-slate-200 italic line-clamp-2">
-                  "{audioTitle || latestAudio.text.slice(0, 30)}..."
+                  "{audioTitle || (latestAudio.text ? latestAudio.text.slice(0, 30) : "")}..."
                 </p>
               )}
 

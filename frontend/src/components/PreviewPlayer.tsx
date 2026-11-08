@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useRef, useState, useEffect } from "react";
 import { 
@@ -27,6 +27,9 @@ export interface PreviewPlayerProps {
   bgDuration?: number;
   bgTrimStart?: number;
   memeImageList?: TimelineMemeImageItem[];
+  setMemeImageList?: React.Dispatch<React.SetStateAction<TimelineMemeImageItem[]>>;
+  selectedMemeId?: string | null;
+  setSelectedMemeId?: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
@@ -49,13 +52,23 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   bgStartTime = 0,
   bgDuration = 10,
   bgTrimStart = 0,
-  memeImageList = []
+  memeImageList = [],
+  setMemeImageList,
+  selectedMemeId,
+  setSelectedMemeId,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [isResizingImage, setIsResizingImage] = useState<boolean>(false);
   const resizeStartData = useRef<{ mouseX: number; initialWidth: number }>({ mouseX: 0, initialWidth: 800 });
+
+  // KÉO DI CHUYỂN MEME TRỰC TIẾP
+  const [isDraggingMeme, setIsDraggingMeme] = useState(false);
+  const [draggedMemeId, setDraggedMemeId] = useState<string | null>(null);
+  const dragMemeStartPos = useRef<{ mouseX: number; mouseY: number; initialX: number; initialY: number }>({
+    mouseX: 0, mouseY: 0, initialX: 0, initialY: 0
+  });
 
   const getFullMediaUrl = (url: string | null | undefined): string => {
     if (!url) return "";
@@ -68,10 +81,8 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   const isVideo = /\.(mp4|mov|webm|mkv|avi|m4v)(\?.*)?$/i.test(bgUrl);
   const isInsideBgVideo = currentTime >= bgStartTime && currentTime <= (bgStartTime + bgDuration);
 
-  // ĐỒNG BỘ VIDEO VỚI KIM PLAYHEAD CHÍNH XÁC
   useEffect(() => {
     if (!videoRef.current || !isVideo) return;
-
     if (isInsideBgVideo) {
       const targetVideoTime = bgTrimStart + (currentTime - bgStartTime);
       if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.15) {
@@ -113,6 +124,57 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
     };
   }, [isResizingImage, previewActiveBlock, baseScale, zoomScale, setBlocks]);
 
+  // BẮT SỰ KIỆN KÉO DI CHUYỂN MEME
+  const handleMouseDownOnMeme = (meme: TimelineMemeImageItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsDraggingMeme(true);
+    setDraggedMemeId(meme.id);
+    if (setSelectedMemeId) setSelectedMemeId(meme.id);
+    dragMemeStartPos.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initialX: meme.img_x,
+      initialY: meme.img_y,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMoveMeme = (e: MouseEvent) => {
+      if (!isDraggingMeme || !draggedMemeId || !setMemeImageList) return;
+      const deltaX = e.clientX - dragMemeStartPos.current.mouseX;
+      const deltaY = e.clientY - dragMemeStartPos.current.mouseY;
+      const scaleMultiplier = baseScale * zoomScale;
+      const moveXOriginal = Math.round(deltaX / scaleMultiplier);
+      const moveYOriginal = Math.round(deltaY / scaleMultiplier);
+
+      setMemeImageList((prev) =>
+        prev.map((m) => {
+          if (m.id !== draggedMemeId) return m;
+          const newX = Math.max(0, Math.min(1080 - (m.img_width || 300), dragMemeStartPos.current.initialX + moveXOriginal));
+          const newY = Math.max(0, Math.min(1920 - 100, dragMemeStartPos.current.initialY + moveYOriginal));
+          return { ...m, img_x: newX, img_y: newY };
+        })
+      );
+    };
+
+    const handleMouseUpMeme = () => {
+      if (isDraggingMeme) {
+        setIsDraggingMeme(false);
+        setDraggedMemeId(null);
+      }
+    };
+
+    if (isDraggingMeme) {
+      window.addEventListener("mousemove", handleMouseMoveMeme);
+      window.addEventListener("mouseup", handleMouseUpMeme);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMoveMeme);
+      window.removeEventListener("mouseup", handleMouseUpMeme);
+    };
+  }, [isDraggingMeme, draggedMemeId, baseScale, zoomScale, setMemeImageList]);
+
   const formatTimecode = (secs: number) => {
     const h = Math.floor(secs / 3600).toString().padStart(2, "0");
     const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
@@ -131,14 +193,12 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
     }
   };
 
-  // Lọc các ảnh meme xuất hiện tại thời điểm kim hiện tại
   const activeMemes = memeImageList.filter(
     (m) => currentTime >= m.startTime && currentTime <= m.startTime + m.duration
   );
 
   return (
     <div onWheel={handleWheelZoom} className="flex-1 flex flex-col items-center justify-start p-4 bg-slate-950 relative overflow-y-auto overflow-x-hidden">
-      {/* Zoom Bar */}
       <div className="sticky top-0 z-30 mb-2 flex items-center self-start">
         {showZoomPanel ? (
           <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full shadow-xl">
@@ -162,9 +222,8 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
         )}
       </div>
 
-      {/* KHUNG DỌC 9:16 */}
       <div ref={containerRef} className="my-auto py-1 flex flex-col items-center">
-        <div style={{ transform: `scale(${zoomScale})`, transformOrigin: "top center", transition: isDragging || isResizingImage ? "none" : "transform 0.15s ease-out" }} className="rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800 bg-black flex-shrink-0">
+        <div style={{ transform: `scale(${zoomScale})`, transformOrigin: "top center", transition: isDragging || isResizingImage || isDraggingMeme ? "none" : "transform 0.15s ease-out" }} className="rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800 bg-black flex-shrink-0">
           <div style={{ width: "320px", height: "568px" }} className="relative overflow-hidden select-none bg-slate-950">
             {bgUrl ? (
               isVideo ? (
@@ -199,7 +258,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
               </div>
             )}
 
-            {/* 1. LỚP ẢNH COMMENT (Z-INDEX: 25) */}
+            {/* 1. LỚP ẢNH COMMENT */}
             {previewActiveBlock && (previewActiveBlock.image_url || previewActiveBlock.image_path) && (
               <div
                 onMouseDown={handleMouseDownOnImage}
@@ -207,32 +266,54 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
                   left: `${previewActiveBlock.img_x * baseScale}px`,
                   top: `${previewActiveBlock.img_y * baseScale}px`,
                   width: `${(previewActiveBlock.img_width || 800) * baseScale}px`,
+                  borderRadius: `${previewActiveBlock.borderRadius || 12}px`,
+                  opacity: previewActiveBlock.opacity ?? 1.0,
                 }}
-                className={`absolute group cursor-grab active:cursor-grabbing z-25 ${isDragging ? "ring-2 ring-rose-500 shadow-2xl" : "hover:ring-1 hover:ring-amber-400"}`}
+                className={`absolute group cursor-grab active:cursor-grabbing z-25 overflow-hidden ${isDragging ? "ring-2 ring-rose-500 shadow-2xl" : "hover:ring-1 hover:ring-amber-400"}`}
               >
-                <img src={getFullMediaUrl(previewActiveBlock.image_url || previewActiveBlock.image_path)} alt="Comment" draggable={false} className="w-full pointer-events-none drop-shadow-2xl rounded-md block select-none" />
+                <img src={getFullMediaUrl(previewActiveBlock.image_url || previewActiveBlock.image_path)} alt="Comment" draggable={false} className="w-full pointer-events-none drop-shadow-2xl block select-none" />
                 <div onMouseDown={handleStartResizeImage} title="Kéo góc để thu nhỏ/phóng to" className="absolute -bottom-2 -right-2 w-4 h-4 bg-amber-400 border border-slate-900 rounded-full cursor-se-resize shadow-lg flex items-center justify-center hover:scale-125 transition-transform" />
               </div>
             )}
 
-            {/* 2. LỚP ẢNH MEME (Z-INDEX: 35 - NẰM ĐÈ LÊN ẢNH COMMENT) */}
-            {activeMemes.map((meme) => (
-              <div
-                key={meme.id}
-                style={{
-                  left: `${meme.img_x * baseScale}px`,
-                  top: `${meme.img_y * baseScale}px`,
-                  width: `${meme.img_width * baseScale}px`,
-                }}
-                className="absolute z-35 pointer-events-none select-none"
-              >
-                <img src={meme.url} alt="meme" className="w-full drop-shadow-2xl" />
-              </div>
-            ))}
+            {/* 2. LỚP ẢNH/VIDEO MEME: CÓ THỂ GIỮ CHUỘT VÀ KÉO RÊ DI CHUYỂN TRỰC TIẾP */}
+            {activeMemes.map((meme) => {
+              const fullMemeUrl = getFullMediaUrl(meme.url);
+              const isVidMeme = meme.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(meme.url);
+              const isSelectedMeme = selectedMemeId === meme.id;
+
+              return (
+                <div
+                  key={meme.id}
+                  onMouseDown={(e) => handleMouseDownOnMeme(meme, e)}
+                  style={{
+                    left: `${meme.img_x * baseScale}px`,
+                    top: `${meme.img_y * baseScale}px`,
+                    width: `${meme.img_width * baseScale}px`,
+                    opacity: meme.opacity ?? 1.0,
+                  }}
+                  className={`absolute z-35 cursor-grab active:cursor-grabbing rounded overflow-hidden transition-shadow ${
+                    isSelectedMeme ? "ring-2 ring-pink-500 shadow-2xl" : "hover:ring-1 hover:ring-pink-400"
+                  }`}
+                >
+                  {isVidMeme ? (
+                    <video
+                      src={fullMemeUrl}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-full drop-shadow-2xl pointer-events-none"
+                    />
+                  ) : (
+                    <img src={fullMemeUrl} alt="meme" className="w-full drop-shadow-2xl pointer-events-none select-none" />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* THANH CAPCUT PLAYER CONTROL BAR */}
         <div style={{ width: `${320 * zoomScale}px` }} className="mt-3 flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border border-slate-800 rounded-xl text-slate-300 shadow-lg text-[11px] font-mono">
           <div className="flex items-center gap-1.5">
             <span className="text-cyan-400 font-semibold">{formatTimecode(currentTime)}</span>

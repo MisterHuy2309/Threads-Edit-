@@ -1,15 +1,14 @@
-"use client";
+﻿"use client";
 
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { 
-  Volume2, VolumeX, Volume1, Sliders, Music, Mic, RotateCcw, Play, Pause, Sparkles
+  Volume2, VolumeX, Volume1, Sliders, Music, Mic, RotateCcw, Play, Pause, Sparkles, Gauge, Film, Smile
 } from "lucide-react";
-import { TimelineBlock, TimelineAudioItem, VoiceItem, BgClipItem } from "@/types";
+import { TimelineBlock, TimelineAudioItem, VoiceItem, BgClipItem, TimelineMemeImageItem } from "@/types";
 
 export interface InspectorProps {
   inspectorTab: "video" | "audio";
   setInspectorTab: (tab: "video" | "audio") => void;
-  // Các block đang được chọn
   activeBlock: TimelineBlock | null;
   setBlocks?: React.Dispatch<React.SetStateAction<TimelineBlock[]>>;
   activeAudioItem?: TimelineAudioItem | null;
@@ -18,6 +17,8 @@ export interface InspectorProps {
   onUpdateVoiceItem?: (id: string, updatedProps: Partial<VoiceItem>) => void;
   activeBgClip?: BgClipItem | null;
   onUpdateBgClip?: (id: string, updatedProps: Partial<BgClipItem>) => void;
+  activeMemeItem?: TimelineMemeImageItem | null;
+  onUpdateMemeItem?: (id: string, updatedProps: Partial<TimelineMemeImageItem>) => void;
   handleUpdateBlockVoice?: (blockId: string, updatedProps: Partial<TimelineBlock>) => Promise<void>;
   voices: Record<string, string>;
 }
@@ -33,27 +34,134 @@ export const Inspector: React.FC<InspectorProps> = ({
   onUpdateVoiceItem,
   activeBgClip,
   onUpdateBgClip,
+  activeMemeItem,
+  onUpdateMemeItem,
   handleUpdateBlockVoice,
   voices,
 }) => {
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlayingPreview, setIsPlayingPreview] = React.useState<boolean>(false);
+  const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
 
-  const togglePreview = (url: string) => {
+  const togglePreviewWithSpeed = (url: string, speed: number = 1.0) => {
     if (!audioPreviewRef.current) return;
     if (isPlayingPreview) {
       audioPreviewRef.current.pause();
       setIsPlayingPreview(false);
     } else {
       audioPreviewRef.current.src = url;
+      audioPreviewRef.current.playbackRate = speed;
       audioPreviewRef.current.play().then(() => setIsPlayingPreview(true)).catch(() => {});
     }
   };
 
-  // 1. NẾU ĐANG CHỌN BLOCK TRÊN TRACK NHẠC & FX (BGM HOẶC MEME SOUND)
+  // 1. CẤU HÌNH BLOCK MEME (ẢNH HOẶC VIDEO MEME KÈM WATERMARK OPACITY)
+  if (activeMemeItem) {
+    const opacity = activeMemeItem.opacity ?? 1.0;
+    return (
+      <div className="w-[320px] border-l border-slate-800 bg-[#121316] flex flex-col shrink-0 select-none text-xs">
+        <div className="h-10 px-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60 font-medium">
+          <span className="text-slate-200 flex items-center gap-1.5 font-semibold">
+            <Smile size={14} className="text-pink-400" /> Cài Đặt Ảnh/Video Meme
+          </span>
+          <span className="text-[10px] text-slate-500 font-mono">{activeMemeItem.duration}s</span>
+        </div>
+
+        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+          <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-1">
+            <span className="text-[11px] text-slate-400 block font-medium">Tên file meme:</span>
+            <p className="text-slate-200 font-semibold truncate text-xs">{activeMemeItem.name}</p>
+          </div>
+
+          {/* ĐỘ MỜ WATERMARK */}
+          <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Sparkles size={14} className="text-pink-400" /> Độ mờ / Watermark
+              </span>
+              <span className="font-mono text-pink-400 font-bold text-xs">{Math.round(opacity * 100)}%</span>
+            </div>
+
+            <input
+              type="range"
+              min={0.05}
+              max={1.0}
+              step={0.05}
+              value={opacity}
+              onChange={(e) => {
+                if (onUpdateMemeItem) onUpdateMemeItem(activeMemeItem.id, { opacity: Number(e.target.value) });
+              }}
+              className="w-full accent-pink-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+            />
+
+            <div className="grid grid-cols-4 gap-1 pt-1">
+              {[0.2, 0.5, 0.8, 1.0].map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => onUpdateMemeItem && onUpdateMemeItem(activeMemeItem.id, { opacity: lvl })}
+                  className={`py-1 rounded text-[10px] font-mono border transition ${
+                    opacity === lvl ? "bg-pink-600/30 border-pink-500 text-pink-300 font-bold" : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {Math.round(lvl * 100)}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* KÍCH THƯỚC VÀ VỊ TRÍ */}
+          <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
+            <div className="space-y-1">
+              <div className="flex justify-between text-slate-400">
+                <span>Chiều rộng (Width):</span>
+                <span className="text-pink-400 font-mono">{activeMemeItem.img_width}px</span>
+              </div>
+              <input
+                type="range"
+                min={100}
+                max={1080}
+                value={activeMemeItem.img_width}
+                onChange={(e) => {
+                  if (onUpdateMemeItem) onUpdateMemeItem(activeMemeItem.id, { img_width: Number(e.target.value) });
+                }}
+                className="w-full accent-pink-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-slate-400 pt-1">
+              <div className="p-2 bg-slate-950 border border-slate-800 rounded">
+                <span className="block text-[10px]">Tọa độ X</span>
+                <span className="text-white font-mono font-semibold">{Math.round(activeMemeItem.img_x)}px</span>
+              </div>
+              <div className="p-2 bg-slate-950 border border-slate-800 rounded">
+                <span className="block text-[10px]">Tọa độ Y</span>
+                <span className="text-white font-mono font-semibold">{Math.round(activeMemeItem.img_y)}px</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. CẤU HÌNH NHẠC NỀN & MEME SOUND
   if (activeAudioItem) {
     const vol = activeAudioItem.volume !== undefined ? activeAudioItem.volume : 100;
+    const speed = activeAudioItem.speed || 1.0;
     const isMeme = activeAudioItem.type === "sound_effect";
+
+    const handleSpeedChange = (newSpeed: number) => {
+      if (!onUpdateAudioItem) return;
+      const original = activeAudioItem.originalDuration || activeAudioItem.maxDuration || activeAudioItem.duration;
+      const newDuration = Number((original / newSpeed).toFixed(2));
+      onUpdateAudioItem(activeAudioItem.id, {
+        speed: newSpeed,
+        duration: newDuration,
+        originalDuration: original
+      });
+      if (audioPreviewRef.current) {
+        audioPreviewRef.current.playbackRate = newSpeed;
+      }
+    };
 
     return (
       <div className="w-[320px] border-l border-slate-800 bg-[#121316] flex flex-col shrink-0 select-none text-xs">
@@ -66,21 +174,61 @@ export const Inspector: React.FC<InspectorProps> = ({
         </div>
 
         <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {/* TÊN FILE & NGHE THỬ */}
           <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2">
-            <span className="text-[11px] text-slate-400 block font-medium">Tên file âm thanh:</span>
+            <span className="text-[11px] text-slate-400 block font-medium">Tệp âm thanh:</span>
             <p className="text-slate-200 font-semibold truncate text-xs">{activeAudioItem.name}</p>
 
             <button
-              onClick={() => togglePreview(activeAudioItem.url)}
+              onClick={() => togglePreviewWithSpeed(activeAudioItem.url, speed)}
               className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center justify-center gap-1.5 transition font-medium"
             >
               {isPlayingPreview ? <Pause size={13} /> : <Play size={13} />}
-              <span>{isPlayingPreview ? "Tạm dừng nghe thử" : "Nghe thử file âm thanh"}</span>
+              <span>{isPlayingPreview ? "Tạm dừng" : `Nghe thử (${speed}x)`}</span>
             </button>
           </div>
 
-          {/* THANH TRƯỢT CHỈNH ÂM LƯỢNG (0% - 200%) */}
+          <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Gauge size={14} className="text-amber-400" /> Tốc độ phát (Speed)
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-amber-400 font-bold text-xs">{speed}x</span>
+                <button
+                  onClick={() => handleSpeedChange(1.0)}
+                  title="Đặt lại 1.0x mặc định"
+                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-white rounded transition"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </div>
+            </div>
+
+            <input
+              type="range"
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              value={speed}
+              onChange={(e) => handleSpeedChange(Number(e.target.value))}
+              className="w-full accent-amber-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+            />
+
+            <div className="grid grid-cols-4 gap-1 pt-1">
+              {[0.75, 1.0, 1.25, 1.5].map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => handleSpeedChange(lvl)}
+                  className={`py-1 rounded text-[10px] font-mono border transition ${
+                    speed === lvl ? "bg-amber-600/30 border-amber-500 text-amber-300 font-bold" : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {lvl}x
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
             <div className="flex items-center justify-between text-slate-300">
               <span className="font-semibold flex items-center gap-1.5">
@@ -112,18 +260,90 @@ export const Inspector: React.FC<InspectorProps> = ({
               }}
               className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded cursor-pointer"
             />
+          </div>
+        </div>
+        <audio ref={audioPreviewRef} onEnded={() => setIsPlayingPreview(false)} className="hidden" />
+      </div>
+    );
+  }
 
-            {/* CÁC PHÍM TẮT MỨC ÂM LƯỢNG NHANH */}
-            <div className="grid grid-cols-4 gap-1.5 pt-1">
-              {[0, 50, 100, 150].map((level) => (
+  // 3. CẤU HÌNH VOICE TTS
+  if (activeVoiceItem) {
+    const speed = activeVoiceItem.speed || 1.0;
+
+    const handleVoiceSpeedChange = (newSpeed: number) => {
+      if (!onUpdateVoiceItem) return;
+      const original = activeVoiceItem.originalDuration || activeVoiceItem.maxDuration || activeVoiceItem.duration;
+      const newDuration = Number((original / newSpeed).toFixed(2));
+      onUpdateVoiceItem(activeVoiceItem.id, {
+        speed: newSpeed,
+        duration: newDuration,
+        originalDuration: original
+      });
+      if (audioPreviewRef.current) {
+        audioPreviewRef.current.playbackRate = newSpeed;
+      }
+    };
+
+    return (
+      <div className="w-[320px] border-l border-slate-800 bg-[#121316] flex flex-col shrink-0 select-none text-xs">
+        <div className="h-10 px-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60 font-medium">
+          <span className="text-slate-200 flex items-center gap-1.5 font-semibold">
+            <Mic size={14} className="text-emerald-400" /> Cài Đặt Voice TTS
+          </span>
+          <span className="text-[10px] text-slate-500 font-mono">{activeVoiceItem.duration}s</span>
+        </div>
+
+        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+          <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2">
+            <span className="text-[11px] text-slate-400 block font-medium">Lời thoại:</span>
+            <p className="text-slate-200 font-semibold italic text-xs">"{activeVoiceItem.name}"</p>
+            <button
+              onClick={() => togglePreviewWithSpeed(activeVoiceItem.url, speed)}
+              className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center justify-center gap-1.5 transition font-medium"
+            >
+              {isPlayingPreview ? <Pause size={13} /> : <Play size={13} />}
+              <span>{isPlayingPreview ? "Dừng" : `Nghe thử (${speed}x)`}</span>
+            </button>
+          </div>
+
+          <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Gauge size={14} className="text-emerald-400" /> Tốc độ đọc (Speed)
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-emerald-400 font-bold text-xs">{speed}x</span>
                 <button
-                  key={level}
-                  onClick={() => onUpdateAudioItem && onUpdateAudioItem(activeAudioItem.id, { volume: level })}
+                  onClick={() => handleVoiceSpeedChange(1.0)}
+                  title="Đặt lại 1.0x mặc định"
+                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-white rounded transition"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </div>
+            </div>
+
+            <input
+              type="range"
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              value={speed}
+              onChange={(e) => handleVoiceSpeedChange(Number(e.target.value))}
+              className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+            />
+
+            <div className="grid grid-cols-4 gap-1 pt-1">
+              {[0.75, 1.0, 1.25, 1.5].map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => handleVoiceSpeedChange(lvl)}
                   className={`py-1 rounded text-[10px] font-mono border transition ${
-                    vol === level ? "bg-cyan-600/30 border-cyan-500 text-cyan-300 font-bold" : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-white"
+                    speed === lvl ? "bg-emerald-600/30 border-emerald-500 text-emerald-300 font-bold" : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-white"
                   }`}
                 >
-                  {level}%
+                  {lvl}x
                 </button>
               ))}
             </div>
@@ -134,39 +354,59 @@ export const Inspector: React.FC<InspectorProps> = ({
     );
   }
 
-  // 2. NẾU ĐANG CHỌN VOICE TTS ĐỘC LẬP
-  if (activeVoiceItem) {
+  // 4. CẤU HÌNH VIDEO BACKGROUND
+  if (activeBgClip) {
+    const speed = activeBgClip.speed || 1.0;
     return (
       <div className="w-[320px] border-l border-slate-800 bg-[#121316] flex flex-col shrink-0 select-none text-xs">
         <div className="h-10 px-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60 font-medium">
           <span className="text-slate-200 flex items-center gap-1.5 font-semibold">
-            <Mic size={14} className="text-emerald-400" /> Cài Đặt Giọng Đọc TTS
+            <Film size={14} className="text-cyan-400" /> Cài Đặt Video Nền
           </span>
-          <span className="text-[10px] text-slate-500 font-mono">{activeVoiceItem.duration}s</span>
+          <span className="text-[10px] text-slate-500 font-mono">{activeBgClip.duration}s</span>
         </div>
 
         <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-          <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2">
-            <span className="text-[11px] text-slate-400 block font-medium">Nội dung / Tên thoại:</span>
-            <p className="text-slate-200 font-semibold italic text-xs">"{activeVoiceItem.name}"</p>
-            <button
-              onClick={() => togglePreview(activeVoiceItem.url)}
-              className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center justify-center gap-1.5 transition font-medium"
-            >
-              {isPlayingPreview ? <Pause size={13} /> : <Play size={13} />}
-              <span>{isPlayingPreview ? "Dừng" : "Nghe thử Voice"}</span>
-            </button>
+          <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-1">
+            <span className="text-[11px] text-slate-400 block font-medium">Tên video:</span>
+            <p className="text-slate-200 font-semibold truncate text-xs">{activeBgClip.name}</p>
+          </div>
+
+          <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Gauge size={14} className="text-cyan-400" /> Tua nhanh / chậm (Speed)
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-cyan-400 font-bold text-xs">{speed}x</span>
+                <button
+                  onClick={() => onUpdateBgClip && onUpdateBgClip(activeBgClip.id, { speed: 1.0 })}
+                  title="Đặt lại 1.0x"
+                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-white rounded transition"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </div>
+            </div>
+
+            <input
+              type="range"
+              min={0.5}
+              max={2.0}
+              step={0.1}
+              value={speed}
+              onChange={(e) => onUpdateBgClip && onUpdateBgClip(activeBgClip.id, { speed: Number(e.target.value) })}
+              className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+            />
           </div>
         </div>
-        <audio ref={audioPreviewRef} onEnded={() => setIsPlayingPreview(false)} className="hidden" />
       </div>
     );
   }
 
-  // 3. NẾU ĐANG CHỌN ẢNH COMMENT HOẶC CLIP MẶC ĐỊNH
+  // 5. CẤU HÌNH ẢNH COMMENT MẶC ĐỊNH
   return (
     <div className="w-[320px] border-l border-slate-800 bg-[#121316] flex flex-col shrink-0 select-none text-xs">
-      {/* THANH CHUYỂN TABS: AUDIO & VOICE | VIDEO */}
       <div className="h-10 border-b border-slate-800 flex bg-slate-950/60 text-xs shrink-0">
         <button
           onClick={() => setInspectorTab("audio")}
@@ -174,7 +414,7 @@ export const Inspector: React.FC<InspectorProps> = ({
             inspectorTab === "audio" ? "border-b-2 border-amber-400 text-amber-300 bg-slate-900/80" : "text-slate-400 hover:text-slate-200"
           }`}
         >
-          <Volume2 size={13} /> Audio & Voice
+          <Volume2 size={13} /> Audio & Thoại
         </button>
         <button
           onClick={() => setInspectorTab("video")}
@@ -182,7 +422,7 @@ export const Inspector: React.FC<InspectorProps> = ({
             inspectorTab === "video" ? "border-b-2 border-cyan-400 text-cyan-300 bg-slate-900/80" : "text-slate-400 hover:text-slate-200"
           }`}
         >
-          <Sliders size={13} /> Video (Transform)
+          <Sliders size={13} /> Hiệu Ứng & Vị Trí
         </button>
       </div>
 
@@ -208,15 +448,6 @@ export const Inspector: React.FC<InspectorProps> = ({
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 outline-none focus:border-amber-400 resize-none leading-relaxed"
               />
 
-              {/* NGHE THỬ ÂM THANH */}
-              {activeBlock.audio_url && (
-                <div className="space-y-1">
-                  <span className="text-slate-400 block font-medium">Nghe thử âm thanh:</span>
-                  <audio controls src={activeBlock.audio_url} className="w-full h-8 mt-1 rounded bg-slate-800" />
-                </div>
-              )}
-
-              {/* ĐỔI GIỌNG ĐỌC */}
               <div className="space-y-1">
                 <label className="text-slate-400 font-medium block">Đổi giọng đọc:</label>
                 <select
@@ -233,69 +464,108 @@ export const Inspector: React.FC<InspectorProps> = ({
                   ))}
                 </select>
               </div>
-
-              {/* TỐC ĐỘ ĐỌC */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-slate-400">
-                  <span>Tốc độ đọc (Analog 1 - 100):</span>
-                  <span className="text-amber-400 font-mono">{activeBlock.speed || 50}</span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={activeBlock.speed || 50}
-                  onChange={(e) => {
-                    const sp = Number(e.target.value);
-                    if (setBlocks) {
-                      setBlocks((prev) =>
-                        prev.map((b) => (b.id === activeBlock.id ? { ...b, speed: sp } : b))
-                      );
-                    }
-                  }}
-                  onMouseUp={() => {
-                    if (handleUpdateBlockVoice) {
-                      handleUpdateBlockVoice(activeBlock.id, { speed: activeBlock.speed });
-                    }
-                  }}
-                  className="w-full accent-amber-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                />
-              </div>
             </div>
           ) : (
-            /* TAB VIDEO TRANSFORM CHO ẢNH COMMENT */
             <div className="space-y-3.5">
-              <span className="font-semibold text-slate-300 block">Kích thước & Vị trí ảnh:</span>
-              <div className="space-y-1">
-                <div className="flex justify-between text-slate-400">
-                  <span>Chiều rộng ảnh (Width):</span>
-                  <span className="text-cyan-400 font-mono">{activeBlock.img_width}px</span>
+              <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2">
+                <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-amber-400" /> Hiệu ứng xuất hiện
+                </span>
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  {[
+                    { id: "none", label: "Không có" },
+                    { id: "fade", label: "Mờ dần (Fade)" },
+                    { id: "pop", label: "Bật nảy (Pop)" },
+                    { id: "slide_up", label: "Trượt lên" },
+                  ].map((anim) => (
+                    <button
+                      key={anim.id}
+                      onClick={() => {
+                        if (setBlocks) {
+                          setBlocks((prev) =>
+                            prev.map((b) => (b.id === activeBlock.id ? { ...b, animation: anim.id as any } : b))
+                          );
+                        }
+                      }}
+                      className={`py-1.5 px-2 rounded text-[11px] border text-left transition ${
+                        (activeBlock.animation || "none") === anim.id
+                          ? "bg-amber-600/30 border-amber-500 text-amber-300 font-semibold"
+                          : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {anim.label}
+                    </button>
+                  ))}
                 </div>
-                <input
-                  type="range"
-                  min={300}
-                  max={1060}
-                  value={activeBlock.img_width}
-                  onChange={(e) => {
-                    const w = Number(e.target.value);
-                    if (setBlocks) {
-                      setBlocks((prev) =>
-                        prev.map((b) => (b.id === activeBlock.id ? { ...b, img_width: w } : b))
-                      );
-                    }
-                  }}
-                  className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded cursor-pointer"
-                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-slate-400 pt-2">
-                <div className="p-2 bg-slate-900 border border-slate-800 rounded">
-                  <span className="block text-[10px]">Tọa độ X</span>
-                  <span className="text-white font-mono font-semibold">{Math.round(activeBlock.img_x)}px</span>
+              <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Bo tròn góc viền:</span>
+                    <span className="text-cyan-400 font-mono">{activeBlock.borderRadius || 12}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    value={activeBlock.borderRadius || 12}
+                    onChange={(e) => {
+                      const r = Number(e.target.value);
+                      if (setBlocks) setBlocks((prev) => prev.map((b) => (b.id === activeBlock.id ? { ...b, borderRadius: r } : b)));
+                    }}
+                    className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+                  />
                 </div>
-                <div className="p-2 bg-slate-900 border border-slate-800 rounded">
-                  <span className="block text-[10px]">Tọa độ Y</span>
-                  <span className="text-white font-mono font-semibold">{Math.round(activeBlock.img_y)}px</span>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Độ rõ / Trong suốt:</span>
+                    <span className="text-cyan-400 font-mono">{Math.round((activeBlock.opacity ?? 1.0) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={1.0}
+                    step={0.05}
+                    value={activeBlock.opacity ?? 1.0}
+                    onChange={(e) => {
+                      const op = Number(e.target.value);
+                      if (setBlocks) setBlocks((prev) => prev.map((b) => (b.id === activeBlock.id ? { ...b, opacity: op } : b)));
+                    }}
+                    className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Chiều rộng ảnh (Width):</span>
+                    <span className="text-cyan-400 font-mono">{activeBlock.img_width}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={300}
+                    max={1060}
+                    value={activeBlock.img_width}
+                    onChange={(e) => {
+                      const w = Number(e.target.value);
+                      if (setBlocks) setBlocks((prev) => prev.map((b) => (b.id === activeBlock.id ? { ...b, img_width: w } : b)));
+                    }}
+                    className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-slate-400 pt-1">
+                  <div className="p-2 bg-slate-950 border border-slate-800 rounded">
+                    <span className="block text-[10px]">Tọa độ X</span>
+                    <span className="text-white font-mono font-semibold">{Math.round(activeBlock.img_x)}px</span>
+                  </div>
+                  <div className="p-2 bg-slate-950 border border-slate-800 rounded">
+                    <span className="block text-[10px]">Tọa độ Y</span>
+                    <span className="text-white font-mono font-semibold">{Math.round(activeBlock.img_y)}px</span>
+                  </div>
                 </div>
               </div>
             </div>

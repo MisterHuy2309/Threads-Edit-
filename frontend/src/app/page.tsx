@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -53,25 +53,22 @@ export default function CapCutThreadsStudio() {
   const [bgClips, setBgClips] = useState<BgClipItem[]>([]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
-  // Track Ảnh Comment
   const [blocks, setBlocks] = useState<TimelineBlock[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
 
-  // Track Voice TTS
   const [voiceList, setVoiceList] = useState<VoiceItem[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
 
-  // Track Nhạc Nền & Meme Sound
   const [bgmList, setBgmList] = useState<TimelineAudioItem[]>([]);
   const [soundFxList, setSoundFxList] = useState<TimelineAudioItem[]>([]);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
 
+  const [memeImageList, setMemeImageList] = useState<TimelineMemeImageItem[]>([]);
+  const [selectedMemeId, setSelectedMemeId] = useState<string | null>(null);
+
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
-  const [memeImageList, setMemeImageList] = useState<TimelineMemeImageItem[]>([]);
-
-  // MODAL XUẤT BẢN VIDEO & TIẾN TRÌNH (%)
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [exportRes, setExportRes] = useState<"1080p" | "2k" | "4k">("1080p");
   const [isRendering, setIsRendering] = useState(false);
@@ -80,7 +77,6 @@ export default function CapCutThreadsStudio() {
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // UNDO / REDO HISTORY
   const [undoStack, setUndoStack] = useState<TimelineSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<TimelineSnapshot[]>([]);
 
@@ -144,7 +140,6 @@ export default function CapCutThreadsStudio() {
     setSoundFxList(nextSnap.soundFxList || []);
   }, [redoStack, bgClips, blocks, voiceList, memeImageList, bgmList, soundFxList]);
 
-  // HÀM HỦY XUẤT VIDEO (CANCEL RENDER)
   const handleCancelExportVideo = useCallback(async () => {
     if (!renderJobId) return;
     try {
@@ -162,7 +157,6 @@ export default function CapCutThreadsStudio() {
     }
   }, [renderJobId, API_BASE]);
 
-  // BẮT PHÍM TẮT ESCAPE (ESC) ĐỂ HỦY RENDER HOẶC ĐÓNG MODAL
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -268,8 +262,10 @@ export default function CapCutThreadsStudio() {
       startTime: startTime,
       duration: item.duration || 3.0,
       maxDuration: item.duration || 3.0,
+      trimStart: 0,
       type: type,
       volume: 100,
+      speed: 1.0,
     };
 
     if (type === "bgm") {
@@ -285,20 +281,38 @@ export default function CapCutThreadsStudio() {
     setSoundFxList((prev) => prev.map((a) => (a.id === id ? { ...a, ...updatedProps } : a)));
   };
 
+  const handleUpdateVoiceItem = (id: string, updatedProps: Partial<VoiceItem>) => {
+    setVoiceList((prev) => prev.map((v) => (v.id === id ? { ...v, ...updatedProps } : v)));
+  };
+
+  const handleUpdateBgClip = (id: string, updatedProps: Partial<BgClipItem>) => {
+    setBgClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...updatedProps } : c)));
+  };
+
   const handleAddMemeImageToTimeline = (item: any) => {
     recordHistory();
     const startTime = Number(currentTime.toFixed(2));
+    const isVid = item.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(item.url);
     const newMeme: TimelineMemeImageItem = {
       id: "meme_" + Date.now(),
       name: item.name,
       url: item.url,
       startTime: startTime,
-      duration: 3.0,
+      duration: item.duration || 3.0,
+      maxDuration: item.duration || 3.0,
+      trimStart: 0,
       img_x: 350,
       img_y: 200,
       img_width: 350,
+      type: isVid ? "video" : "image",
+      opacity: 1.0,
     };
     setMemeImageList((prev) => [...prev, newMeme]);
+    setSelectedMemeId(newMeme.id);
+  };
+
+  const handleUpdateMemeItem = (id: string, updatedProps: Partial<TimelineMemeImageItem>) => {
+    setMemeImageList((prev) => prev.map((m) => (m.id === id ? { ...m, ...updatedProps } : m)));
   };
 
   const handleAddLatestVoiceToTimeline = () => {
@@ -307,12 +321,14 @@ export default function CapCutThreadsStudio() {
     const nextStart = voiceList.length > 0 ? Math.max(...voiceList.map((v) => v.startTime + v.duration)) : 0;
     const newVoice: VoiceItem = {
       id: "voice_" + Date.now(),
-      name: latestAudio.name || latestAudio.text?.slice(0, 20) || "Voice TTS",
+      name: latestAudio.name || (latestAudio.text ? latestAudio.text.slice(0, 20) : "Voice TTS"),
       url: latestAudio.audio_url,
       path: latestAudio.file_path,
       startTime: Number(nextStart.toFixed(2)),
       duration: latestAudio.duration,
       maxDuration: latestAudio.maxDuration || latestAudio.duration,
+      trimStart: 0,
+      speed: 1.0,
     };
     setVoiceList((prev) => [...prev, newVoice]);
     setSelectedVoiceId(newVoice.id);
@@ -329,6 +345,8 @@ export default function CapCutThreadsStudio() {
       startTime: Number(nextStart.toFixed(2)),
       duration: voiceItem.duration,
       maxDuration: voiceItem.duration,
+      trimStart: 0,
+      speed: 1.0,
     };
     setVoiceList((prev) => [...prev, newVoice]);
     setSelectedVoiceId(newVoice.id);
@@ -471,6 +489,9 @@ export default function CapCutThreadsStudio() {
         img_x: 140,
         img_y: 450,
         img_width: 800,
+        animation: "none",
+        borderRadius: 12,
+        opacity: 1.0,
       };
       setBlocks((prev) => [...prev, newBlock]);
       setSelectedBlockId(newBlock.id);
@@ -493,6 +514,7 @@ export default function CapCutThreadsStudio() {
   const activeVoiceItem = voiceList.find((v) => v.id === selectedVoiceId) || null;
   const activeAudioItem = [...bgmList, ...soundFxList].find((a) => a.id === selectedAudioId) || null;
   const activeBgClip = bgClips.find((c) => c.id === selectedClipId) || null;
+  const activeMemeItem = memeImageList.find((m) => m.id === selectedMemeId) || null;
 
   const previewActiveBlock = blocks.find((b) => {
     return currentTime >= b.startTime && currentTime <= b.startTime + b.duration;
@@ -545,7 +567,6 @@ export default function CapCutThreadsStudio() {
     };
   }, [isDragging, activeBlock, zoomScale, baseScale]);
 
-  // HÀM BẮT ĐẦU XUẤT BẢN VIDEO (TẮT HOÀN TOÀN ÂM NỀN + POLLING TIẾN TRÌNH %)
   const handleStartExportVideo = async () => {
     if (bgClips.length === 0 && blocks.length === 0) {
       alert("Vui lòng thêm ít nhất 1 video nền hoặc 1 ảnh comment vào timeline!");
@@ -567,6 +588,7 @@ export default function CapCutThreadsStudio() {
             startTime: c.startTime,
             duration: c.duration,
             trimStart: c.trimStart,
+            speed: c.speed || 1.0,
           })),
           blocks: blocks.map((b) => ({
             image_path: b.image_path || b.image_url,
@@ -575,6 +597,8 @@ export default function CapCutThreadsStudio() {
             img_x: b.img_x,
             img_y: b.img_y,
             img_width: b.img_width || 800,
+            animation: b.animation || "none",
+            opacity: b.opacity ?? 1.0,
           })),
           meme_images: memeImageList.map((m) => ({
             image_path: m.url,
@@ -583,23 +607,31 @@ export default function CapCutThreadsStudio() {
             img_x: m.img_x,
             img_y: m.img_y,
             img_width: m.img_width,
+            animation: m.animation || "none",
+            opacity: m.opacity ?? 1.0,
           })),
           voices: voiceList.map((v) => ({
             audio_path: v.path || v.url,
             startTime: v.startTime,
             duration: v.duration,
+            trimStart: v.trimStart || 0,
+            speed: v.speed || 1.0,
             volume: 100.0,
           })),
           bgm_list: bgmList.map((b) => ({
             audio_path: b.url,
             startTime: b.startTime,
             duration: b.duration,
+            trimStart: b.trimStart || 0,
+            speed: b.speed || 1.0,
             volume: b.volume !== undefined ? b.volume : 100.0,
           })),
           sound_fx_list: soundFxList.map((s) => ({
             audio_path: s.url,
             startTime: s.startTime,
             duration: s.duration,
+            trimStart: s.trimStart || 0,
+            speed: s.speed || 1.0,
             volume: s.volume !== undefined ? s.volume : 100.0,
           })),
         }),
@@ -608,14 +640,12 @@ export default function CapCutThreadsStudio() {
       const data = await res.json();
       if (data.job_id) {
         setRenderJobId(data.job_id);
-
         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
 
         pollingIntervalRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`${API_BASE}/api/video/progress/${data.job_id}`);
             const pollData = await pollRes.json();
-
             setRenderProgress(pollData.progress || 0);
 
             if (pollData.status === "completed") {
@@ -653,7 +683,6 @@ export default function CapCutThreadsStudio() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
-      {/* HEADER CÓ NÚT XUẤT VIDEO MỞ MODAL */}
       <Header
         showTimeline={showTimeline}
         setShowTimeline={setShowTimeline}
@@ -767,7 +796,7 @@ export default function CapCutThreadsStudio() {
           </div>
         </div>
 
-        {/* PREVIEW PLAYER: LUÔN TẮT TIẾNG VIDEO NỀN (MUTED=TRUE) */}
+        {/* PREVIEW PLAYER */}
         <PreviewPlayer
           selectedBg={currentActiveBgClip?.url || ""}
           previewActiveBlock={previewActiveBlock}
@@ -789,8 +818,12 @@ export default function CapCutThreadsStudio() {
           bgDuration={currentActiveBgClip?.duration || 10}
           bgTrimStart={currentActiveBgClip?.trimStart || 0}
           memeImageList={memeImageList}
+          setMemeImageList={setMemeImageList}
+          selectedMemeId={selectedMemeId}
+          setSelectedMemeId={setSelectedMemeId}
         />
 
+        {/* INSPECTOR */}
         <Inspector
           inspectorTab={inspectorTab}
           setInspectorTab={setInspectorTab}
@@ -799,6 +832,11 @@ export default function CapCutThreadsStudio() {
           activeAudioItem={activeAudioItem}
           onUpdateAudioItem={handleUpdateAudioItem}
           activeVoiceItem={activeVoiceItem}
+          onUpdateVoiceItem={handleUpdateVoiceItem}
+          activeBgClip={activeBgClip}
+          onUpdateBgClip={handleUpdateBgClip}
+          activeMemeItem={activeMemeItem}
+          onUpdateMemeItem={handleUpdateMemeItem}
           handleUpdateBlockVoice={handleUpdateBlockVoice}
           voices={voices}
         />
@@ -832,6 +870,8 @@ export default function CapCutThreadsStudio() {
           setSelectedAudioId={setSelectedAudioId}
           memeImageList={memeImageList}
           setMemeImageList={setMemeImageList}
+          selectedMemeId={selectedMemeId}
+          setSelectedMemeId={setSelectedMemeId}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -840,7 +880,7 @@ export default function CapCutThreadsStudio() {
         />
       )}
 
-      {/* MODAL XUẤT BẢN VIDEO ĐA ĐỊNH DẠNG (1080P, 2K, 4K) CÓ PHÍM ESC HỦY NHANH */}
+      {/* MODAL XUẤT BẢN VIDEO */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#16181d] border border-slate-700 w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-4">
@@ -849,11 +889,7 @@ export default function CapCutThreadsStudio() {
                 <Film size={16} className="text-rose-500" /> Xuất Bản Video (Render)
               </span>
               {!isRendering && (
-                <button
-                  onClick={() => setShowExportModal(false)}
-                  title="Đóng (ESC)"
-                  className="text-slate-400 hover:text-white p-1 rounded-lg"
-                >
+                <button onClick={() => setShowExportModal(false)} title="Đóng (ESC)" className="text-slate-400 hover:text-white p-1 rounded-lg">
                   <X size={16} />
                 </button>
               )}
@@ -883,7 +919,6 @@ export default function CapCutThreadsStudio() {
                 ))}
               </div>
 
-              {/* KHUNG TIẾN ĐỘ RENDER KÈM PHÍM TẮT ESC */}
               {isRendering && (
                 <div className="p-3.5 bg-slate-900/90 rounded-xl border border-rose-500/30 space-y-2.5">
                   <div className="flex justify-between items-center text-xs">
@@ -915,18 +950,13 @@ export default function CapCutThreadsStudio() {
                 </div>
               )}
 
-              {/* XUẤT XONG THÀNH CÔNG */}
               {renderedUrl && (
                 <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-300 text-xs">
                     <CheckCircle2 size={16} />
                     <span>Xuất video thành công 100%!</span>
                   </div>
-                  <a
-                    href={renderedUrl}
-                    download
-                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold flex items-center gap-1 shadow"
-                  >
+                  <a href={renderedUrl} download className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold flex items-center gap-1 shadow">
                     <Download size={12} /> Tải Về
                   </a>
                 </div>
