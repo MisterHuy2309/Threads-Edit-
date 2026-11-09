@@ -679,6 +679,15 @@ export default function CapCutThreadsStudio() {
             speed: s.speed || 1.0,
             volume: s.volume !== undefined ? s.volume : 100.0,
           })),
+          watermark: {
+            enabled: enableWatermark,
+            style: watermarkStyle,
+            text: watermarkText,
+            opacity: watermarkOpacity,
+            scale: watermarkScale,
+            x: watermarkPos.x,
+            y: watermarkPos.y,
+          },
         }),
       });
 
@@ -1177,3 +1186,4 @@ export default function CapCutThreadsStudio() {
     </div>
   );
 }
+

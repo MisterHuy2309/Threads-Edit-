@@ -12,7 +12,6 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
   const coverPreviewRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Text tùy chỉnh
   const [m1Title, setM1Title] = useState("TIÊU ĐỀ NÓNG HỔI TRÊN THREADS!");
   
   const [m2Author, setM2Author] = useState("soichibiettuot");
@@ -24,9 +23,38 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
   const [m3MainTitle, setM3MainTitle] = useState("CÁI KẾT BẤT NGỜ...");
   const [m3SubTitle, setM3SubTitle] = useState("Có ai dám thử chưa?");
 
-  const mascotM1 = "http://localhost:8000/media/mascots/mascot_m1.png";
-  const mascotM2 = "http://localhost:8000/media/mascots/mascot_m2.png";
-  const mascotM3 = "http://localhost:8000/media/mascots/mascot_m3.png";
+  // Hỗ trợ tự động fallback tìm ảnh nếu tên file là .jpg hay .png
+  const mascotCandidatesM1 = [
+    "http://localhost:8000/media/mascots/mascot_m1.png",
+    "http://localhost:8000/media/mascots/mascot_m1.jpg",
+    "http://localhost:8000/media/meme_images/mascot_m1.png",
+    "/mascot_m1.png"
+  ];
+  const mascotCandidatesM2 = [
+    "http://localhost:8000/media/mascots/mascot_m2.png",
+    "http://localhost:8000/media/mascots/mascot_m2.jpg",
+    "http://localhost:8000/media/meme_images/mascot_m2.png",
+    "/mascot_m2.png"
+  ];
+  const mascotCandidatesM3 = [
+    "http://localhost:8000/media/mascots/mascot_m3.png",
+    "http://localhost:8000/media/mascots/mascot_m3.jpg",
+    "http://localhost:8000/media/meme_images/mascot_m3.png",
+    "/mascot_m3.png"
+  ];
+
+  const handleImgFallback = (e: React.SyntheticEvent<HTMLImageElement, Event>, candidates: string[]) => {
+    const target = e.currentTarget;
+    const curIdx = Number(target.getAttribute("data-try-idx") || "0");
+    if (curIdx < candidates.length - 1) {
+      const nextIdx = curIdx + 1;
+      target.setAttribute("data-try-idx", String(nextIdx));
+      target.src = candidates[nextIdx];
+    } else {
+      // Nếu không tìm thấy file nào trên ổ đĩa, tạo hình chú khủng long placeholder SVG
+      target.src = "data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 200 200\'><circle cx=\'100\' cy=\'100\' r=\'95\' fill=\'%2322c55e\'/><circle cx=\'70\' cy=\'80\' r=\'12\' fill=\'%23000\'/><circle cx=\'130\' cy=\'80\' r=\'12\' fill=\'%23000\'/><path d=\'M60 120 Q100 160 140 120\' stroke=\'%23000\' stroke-width=\'8\' fill=\'%23ef4444\'/></svg>";
+    }
+  };
 
   const loadHtml2CanvasScript = (): Promise<any> => {
     return new Promise((resolve, reject) => {
@@ -41,25 +69,70 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
     });
   };
 
+  const convertImgToBase64 = async (url: string): Promise<string> => {
+    try {
+      const res = await fetch(url + (url.includes("?") ? "&" : "?") + "v=" + Date.now());
+      const blob = await res.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(url);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return url;
+    }
+  };
+
   const handleDownloadCover = async () => {
-    if (!coverPreviewRef.current) return;
+    if (!coverPreviewRef.current || isExporting) return;
     setIsExporting(true);
     try {
       const html2canvas = await loadHtml2CanvasScript();
-      if (html2canvas) {
-        const canvas = await html2canvas(coverPreviewRef.current, {
-          scale: 3,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: null,
-        });
+      if (!html2canvas) {
+        alert("Chưa nạp được trình xuất ảnh!");
+        return;
+      }
+
+      const imgs = coverPreviewRef.current.querySelectorAll("img");
+      const originalSrcs: string[] = [];
+      for (let i = 0; i < imgs.length; i++) {
+        const img = imgs[i];
+        originalSrcs.push(img.src);
+        if (img.src && !img.src.startsWith("data:")) {
+          const b64 = await convertImgToBase64(img.src);
+          img.src = b64;
+        }
+      }
+
+      const canvas = await html2canvas(coverPreviewRef.current, {
+        scale: 3.375,
+        useCORS: true,
+        backgroundColor: "#101217",
+        logging: false,
+      });
+
+      for (let i = 0; i < imgs.length; i++) {
+        imgs[i].src = originalSrcs[i];
+      }
+
+      canvas.toBlob((blob: Blob | null) => {
+        if (!blob) {
+          alert("Lỗi tạo ảnh PNG!");
+          return;
+        }
+        const fileUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.download = `cover_threads_${selectedTemplate}_${Date.now()}.png`;
-        link.href = canvas.toDataURL("image/png");
+        link.href = fileUrl;
+        document.body.appendChild(link);
         link.click();
-      }
-    } catch {
-      alert("Đang chuẩn bị file ảnh bìa...");
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(fileUrl), 2000);
+      }, "image/png", 1.0);
+
+    } catch (err: any) {
+      alert("Lỗi xuất ảnh: " + (err?.message || err));
     } finally {
       setIsExporting(false);
     }
@@ -82,7 +155,7 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
         <button
           onClick={handleDownloadCover}
           disabled={isExporting}
-          className="flex items-center gap-2 text-xs font-bold px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-lg shadow-lg active:scale-95 transition"
+          className="flex items-center gap-2 text-xs font-bold px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-lg shadow-lg active:scale-95 transition disabled:opacity-50"
         >
           <Download size={14} /> {isExporting ? "Đang xuất PNG..." : "Tải Ảnh Bìa PNG (1080x1920)"}
         </button>
@@ -224,7 +297,7 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
             style={{ width: "320px", height: "568px" }}
             className="relative rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800 shrink-0 select-none bg-black"
           >
-            {/* -------------------- MẪU 2: DRAMA POST (TRIỆT TIÊU NỀN TRẮNG KHUNG VUÔNG) -------------------- */}
+            {/* MẪU 2: DRAMA POST */}
             {selectedTemplate === "M2" && (
               <div className="w-full h-full bg-[#101217] relative flex flex-col justify-between p-4 overflow-hidden">
                 {/* THREADS POST CARD */}
@@ -232,7 +305,12 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-[#f97316] p-0.5 border border-white/40 shadow-sm shrink-0 overflow-hidden flex items-center justify-center">
-                        <img src={mascotM1} className="w-full h-full object-contain" />
+                        <img
+                          src={mascotCandidatesM1[0]}
+                          data-try-idx="0"
+                          onError={(e) => handleImgFallback(e, mascotCandidatesM1)}
+                          className="w-full h-full object-contain"
+                        />
                       </div>
                       
                       <div className="flex items-center gap-1.5 leading-none">
@@ -261,14 +339,15 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
                   <span className="text-[10px] text-slate-500 font-mono block pt-0.5">{m2Likes}</span>
                 </div>
 
-                {/* VÙNG DƯỚI: KHỦNG LONG KHÔNG NỀN + HASHTAG CHUẨN ĐỐI DIỆN */}
+                {/* VÙNG DƯỚI: KHỦNG LONG M2 & HASHTAG */}
                 <div className="relative z-10 flex items-end justify-between -mb-4">
-                  {/* Bọc loại bỏ hoàn toàn viền trắng/hộp vuông bằng CSS mix-blend */}
                   <div className="w-44 h-44 -ml-4 -mb-1 relative flex items-end overflow-hidden pointer-events-none">
                     <img
-                      src={mascotM2}
+                      src={mascotCandidatesM2[0]}
+                      data-try-idx="0"
+                      onError={(e) => handleImgFallback(e, mascotCandidatesM2)}
                       alt="Mascot M2"
-                      style={{ mixBlendMode: "screen", filter: "contrast(1.1) brightness(1.05)" }}
+                      style={{ mixBlendMode: "multiply" }}
                       className="w-full h-full object-contain drop-shadow-2xl"
                     />
                   </div>
@@ -289,7 +368,7 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
               </div>
             )}
 
-            {/* MẪU 1 */}
+            {/* MẪU 1: POP ART */}
             {selectedTemplate === "M1" && (
               <div className="w-full h-full bg-gradient-to-b from-[#ff8a3d] via-[#f97316] to-[#ea580c] relative flex flex-col items-center justify-between p-4 overflow-hidden">
                 <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#fff_2px,transparent_2px)] [background-size:16px_16px] pointer-events-none" />
@@ -300,7 +379,13 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
                   <div className="absolute -bottom-2 left-10 w-4 h-4 bg-white border-r-2 border-b-2 border-black transform rotate-45" />
                 </div>
                 <div className="relative z-10 my-auto flex flex-col items-center">
-                  <img src={mascotM1} alt="Mascot M1" className="w-48 h-48 object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.35)]" />
+                  <img
+                    src={mascotCandidatesM1[0]}
+                    data-try-idx="0"
+                    onError={(e) => handleImgFallback(e, mascotCandidatesM1)}
+                    alt="Mascot M1"
+                    className="w-48 h-48 object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.35)]"
+                  />
                 </div>
                 <div className="relative z-10 mb-2 bg-black/85 backdrop-blur px-3 py-1 rounded-full border border-white/40 text-[10px] font-bold text-amber-300">
                   @soichibiettuot • Threads Channel
@@ -308,7 +393,7 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
               </div>
             )}
 
-            {/* MẪU 3 */}
+            {/* MẪU 3: MINIMALIST */}
             {selectedTemplate === "M3" && (
               <div className="w-full h-full bg-gradient-to-b from-[#fed7aa] via-[#fde047]/60 to-[#fdba74] relative flex flex-col items-center justify-between p-4 overflow-hidden">
                 <div className="relative z-10 w-full mt-4 text-center">
@@ -318,7 +403,13 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
                 </div>
                 <div className="relative z-10 my-auto">
                   <div className="w-40 h-40 rounded-full border-4 border-white/90 bg-white/40 backdrop-blur-sm p-1 shadow-2xl flex items-center justify-center overflow-hidden">
-                    <img src={mascotM3} alt="Mascot M3" className="w-full h-full object-contain rounded-full" />
+                    <img
+                      src={mascotCandidatesM3[0]}
+                      data-try-idx="0"
+                      onError={(e) => handleImgFallback(e, mascotCandidatesM3)}
+                      alt="Mascot M3"
+                      className="w-full h-full object-contain rounded-full"
+                    />
                   </div>
                 </div>
                 <div className="relative z-10 w-full mb-3 bg-white/95 border-2 border-orange-500 rounded-xl py-1.5 px-3 text-center shadow-lg">

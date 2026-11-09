@@ -63,7 +63,6 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   const [isResizingImage, setIsResizingImage] = useState<boolean>(false);
   const resizeStartData = useRef<{ mouseX: number; initialWidth: number }>({ mouseX: 0, initialWidth: 800 });
 
-  // KÉO DI CHUYỂN MEME TRỰC TIẾP
   const [isDraggingMeme, setIsDraggingMeme] = useState(false);
   const [draggedMemeId, setDraggedMemeId] = useState<string | null>(null);
   const dragMemeStartPos = useRef<{ mouseX: number; mouseY: number; initialX: number; initialY: number }>({
@@ -81,20 +80,35 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   const isVideo = /\.(mp4|mov|webm|mkv|avi|m4v)(\?.*)?$/i.test(bgUrl);
   const isInsideBgVideo = currentTime >= bgStartTime && currentTime <= (bgStartTime + bgDuration);
 
+  // ĐỒNG BỘ VIDEO NỀN THÔNG MINH: CHỐNG LẶP SEEKING GÂY ĐỨNG HÌNH TRÊN VIDEO DÀI
   useEffect(() => {
-    if (!videoRef.current || !isVideo) return;
+    const video = videoRef.current;
+    if (!video || !isVideo) return;
+
     if (isInsideBgVideo) {
-      const targetVideoTime = bgTrimStart + (currentTime - bgStartTime);
-      if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.15) {
-        videoRef.current.currentTime = targetVideoTime;
+      const targetVideoTime = Math.max(0, bgTrimStart + (currentTime - bgStartTime));
+      
+      // Chỉ can thiệp seek khi video đang tạm dừng hoặc bị lệch quá 0.45s
+      const timeDiff = Math.abs(video.currentTime - targetVideoTime);
+      if (!isPlaying || timeDiff > 0.45) {
+        if (!video.seeking) {
+          video.currentTime = targetVideoTime;
+        }
       }
+
       if (isPlaying) {
-        videoRef.current.play().catch(() => {});
+        if (video.paused && !video.seeking) {
+          video.play().catch(() => {});
+        }
       } else {
-        videoRef.current.pause();
+        if (!video.paused) {
+          video.pause();
+        }
       }
     } else {
-      videoRef.current.pause();
+      if (!video.paused) {
+        video.pause();
+      }
     }
   }, [currentTime, isPlaying, isVideo, isInsideBgVideo, bgStartTime, bgDuration, bgTrimStart]);
 
@@ -124,7 +138,6 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
     };
   }, [isResizingImage, previewActiveBlock, baseScale, zoomScale, setBlocks]);
 
-  // BẮT SỰ KIỆN KÉO DI CHUYỂN MEME
   const handleMouseDownOnMeme = (meme: TimelineMemeImageItem, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -198,10 +211,10 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   );
 
   return (
-    <div onWheel={handleWheelZoom} className="flex-1 flex flex-col items-center justify-start p-4 bg-slate-950 relative overflow-y-auto overflow-x-hidden">
-      <div className="sticky top-0 z-30 mb-2 flex items-center self-start">
+    <div onWheel={handleWheelZoom} className="w-full flex flex-col items-center justify-start py-2 select-none">
+      <div className="mb-2 flex items-center justify-center">
         {showZoomPanel ? (
-          <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full shadow-xl">
+          <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-1 rounded-full shadow-xl">
             <span className="text-[11px] text-slate-300 font-medium flex items-center gap-1.5">
               <Maximize2 size={13} className="text-amber-400" /> 9:16 Preview
             </span>
@@ -222,7 +235,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
         )}
       </div>
 
-      <div ref={containerRef} className="my-auto py-1 flex flex-col items-center">
+      <div ref={containerRef} className="flex flex-col items-center">
         <div style={{ transform: `scale(${zoomScale})`, transformOrigin: "top center", transition: isDragging || isResizingImage || isDraggingMeme ? "none" : "transform 0.15s ease-out" }} className="rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800 bg-black flex-shrink-0">
           <div style={{ width: "320px", height: "568px" }} className="relative overflow-hidden select-none bg-slate-950">
             {bgUrl ? (
@@ -276,7 +289,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
               </div>
             )}
 
-            {/* 2. LỚP ẢNH/VIDEO MEME: CÓ THỂ GIỮ CHUỘT VÀ KÉO RÊ DI CHUYỂN TRỰC TIẾP */}
+            {/* 2. LỚP ẢNH/VIDEO MEME */}
             {activeMemes.map((meme) => {
               const fullMemeUrl = getFullMediaUrl(meme.url);
               const isVidMeme = meme.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(meme.url);
@@ -314,6 +327,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
           </div>
         </div>
 
+        {/* THANH PLAYER CONTROL BAR */}
         <div style={{ width: `${320 * zoomScale}px` }} className="mt-3 flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border border-slate-800 rounded-xl text-slate-300 shadow-lg text-[11px] font-mono">
           <div className="flex items-center gap-1.5">
             <span className="text-cyan-400 font-semibold">{formatTimecode(currentTime)}</span>
@@ -337,15 +351,6 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
           </div>
         </div>
       </div>
-
-      {renderedUrl && (
-        <div className="sticky bottom-2 mt-2 p-2.5 bg-emerald-950/90 border border-emerald-500/60 rounded-xl flex items-center gap-3 shadow-xl z-20">
-          <span className="text-xs text-emerald-300 font-semibold">Render hoàn tất!</span>
-          <a href={getFullMediaUrl(renderedUrl)} download className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1">
-            <Download size={12} /> Tải Video
-          </a>
-        </div>
-      )}
     </div>
   );
 };

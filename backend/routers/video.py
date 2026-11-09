@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import time
 import json
@@ -10,8 +10,8 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from proglog import ProgressBarLogger
+from PIL import Image, ImageDraw, ImageFont
 
-# 1. ÉP TOÀN BỘ BỘ ĐỆM TẠM THỜI (TEMP) SANG Ổ D (KHÔNG CHẠM Ổ C)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMP_DIR = os.path.join(BASE_DIR, "temp_render")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -20,13 +20,11 @@ PROGRESS_DIR = os.path.join(BASE_DIR, "media", "progress_jobs")
 for p in [TEMP_DIR, OUTPUT_DIR, PROGRESS_DIR]:
     os.makedirs(p, exist_ok=True)
 
-# Ghi đè biến môi trường hệ thống cho tiến trình Python hiện tại
 os.environ["TEMP"] = TEMP_DIR
 os.environ["TMP"] = TEMP_DIR
 import tempfile
 tempfile.tempdir = TEMP_DIR
 
-# VÁ LỖI PILLOW 10+
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = getattr(PIL.Image, 'LANCZOS', getattr(PIL.Image.Resampling, 'LANCZOS', None))
@@ -36,35 +34,28 @@ from moviepy.editor import (
     AudioFileClip,
     ImageClip,
     CompositeVideoClip,
-    CompositeAudioClip
+    CompositeAudioClip,
+    vfx
 )
 
 router = APIRouter(prefix="/api/video", tags=["Video Render"])
 
 def cleanup_job_temp_files(job_id: str, output_file: Optional[str] = None):
-    """Xóa sạch mọi file tạm phát sinh trên ổ D khi hủy hoặc lỗi"""
     if output_file and os.path.exists(output_file):
-        try:
-            os.remove(output_file)
-        except Exception:
-            pass
-            
-    # Dọn sạch các file tạm có chứa job_id hoặc temp audio của MoviePy trong temp_render
+        try: os.remove(output_file)
+        except Exception: pass
     if os.path.exists(TEMP_DIR):
         for f in os.listdir(TEMP_DIR):
-            if job_id in f or f.endswith((".wav", ".mp3", ".mp4", ".tmp")):
-                try:
-                    os.remove(os.path.join(TEMP_DIR, f))
-                except Exception:
-                    pass
+            if job_id in f or f.endswith((".wav", ".mp3", ".mp4", ".tmp", ".png")):
+                try: os.remove(os.path.join(TEMP_DIR, f))
+                except Exception: pass
 
 def write_job_state(job_id: str, data: dict):
     path = os.path.join(PROGRESS_DIR, f"{job_id}.json")
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception: pass
 
 def read_job_state(job_id: str) -> Optional[dict]:
     path = os.path.join(PROGRESS_DIR, f"{job_id}.json")
@@ -72,8 +63,7 @@ def read_job_state(job_id: str) -> Optional[dict]:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            return None
+        except Exception: return None
     return None
 
 class CancellableRenderLogger(ProgressBarLogger):
@@ -85,7 +75,6 @@ class CancellableRenderLogger(ProgressBarLogger):
         state = read_job_state(self.job_id) or {}
         if state.get("cancel_requested"):
             raise InterruptedError("Tiến trình render đã bị người dùng hủy bỏ.")
-
         for bar in self.state.get("bars", {}).values():
             if bar.get("total") and bar.get("index") is not None:
                 total = bar["total"]
@@ -101,6 +90,7 @@ class BgClipInput(BaseModel):
     startTime: float
     duration: float
     trimStart: Optional[float] = 0.0
+    speed: Optional[float] = 1.0
 
 class OverlayBlockInput(BaseModel):
     image_path: str
@@ -109,12 +99,25 @@ class OverlayBlockInput(BaseModel):
     img_x: float
     img_y: float
     img_width: float
+    animation: Optional[str] = "none"
+    opacity: Optional[float] = 1.0
 
 class AudioTrackInput(BaseModel):
     audio_path: str
     startTime: float
     duration: float
+    trimStart: Optional[float] = 0.0
+    speed: Optional[float] = 1.0
     volume: Optional[float] = 100.0
+
+class WatermarkInput(BaseModel):
+    enabled: bool = False
+    style: Optional[str] = "W1"
+    text: Optional[str] = "soichibiettuot"
+    opacity: Optional[float] = 0.9
+    scale: Optional[float] = 1.0
+    x: Optional[float] = 20.0
+    y: Optional[float] = 25.0
 
 class ExportRequest(BaseModel):
     resolution: Optional[str] = "1080p"
@@ -125,6 +128,7 @@ class ExportRequest(BaseModel):
     voices: Optional[List[AudioTrackInput]] = []
     bgm_list: Optional[List[AudioTrackInput]] = []
     sound_fx_list: Optional[List[AudioTrackInput]] = []
+    watermark: Optional[WatermarkInput] = None
 
 def resolve_local_path(url_or_path: str) -> str:
     if not url_or_path:
@@ -152,6 +156,36 @@ def resolve_local_path(url_or_path: str) -> str:
 
     return candidate
 
+def generate_watermark_image(text: str, style: str, output_path: str, scale: float = 1.0):
+    """Vẽ ảnh Watermark PNG trong suốt chuẩn thiết kế để overlay lên video"""
+    base_w, base_h = int(360 * scale), int(80 * scale)
+    img = Image.new("RGBA", (base_w, base_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    try:
+        font = ImageFont.truetype("arialbd.ttf", int(26 * scale))
+    except Exception:
+        font = ImageFont.load_default()
+
+    if style == "W1":
+        # Badge pill xám mờ + viền bo tròn
+        draw.rounded_rectangle([(0, 0), (base_w - 1, base_h - 1)], radius=int(base_h / 2), fill=(30, 34, 43, 230), outline=(71, 85, 105, 200), width=2)
+        # Hình tròn avatar vàng cam
+        pad = int(8 * scale)
+        r = base_h - 2 * pad
+        draw.ellipse([(pad, pad), (pad + r, pad + r)], fill=(249, 115, 22, 255), outline=(255, 255, 255, 180), width=2)
+        draw.text((pad + r + int(12 * scale), int(22 * scale)), text, font=font, fill=(255, 255, 255, 255))
+    elif style == "W2":
+        # Minimal text: @ màu vàng cam + text trắng viền đậm
+        draw.text((int(5 * scale), int(15 * scale)), "@", font=font, fill=(245, 158, 11, 255))
+        draw.text((int(35 * scale), int(15 * scale)), text, font=font, fill=(255, 255, 255, 255))
+    else:
+        # W3: Ribbon cam viền trắng
+        draw.rounded_rectangle([(0, int(6 * scale)), (base_w - 1, base_h - 1)], radius=int(14 * scale), fill=(234, 88, 12, 245), outline=(255, 255, 255, 220), width=2)
+        draw.text((int(20 * scale), int(20 * scale)), text.upper(), font=font, fill=(255, 255, 255, 255))
+
+    img.save(output_path, "PNG")
+
 def run_render_task(job_id: str, req: ExportRequest):
     out_filepath = None
     final_video = None
@@ -166,17 +200,22 @@ def run_render_task(job_id: str, req: ExportRequest):
         }
         target_w, target_h = res_map.get(req.resolution.lower(), (1080, 1920))
         scale_factor = target_w / 1080.0
+        preview_scale = 1080.0 / 320.0
 
         video_clips = []
         audio_clips = []
 
-        # 1. Video nền (TẮT HOÀN TOÀN TIẾNG GỐC)
+        # 1. Video Nền
         for clip_info in req.bg_clips:
             real_p = resolve_local_path(clip_info.video_path)
             if os.path.exists(real_p):
                 try:
                     v = VideoFileClip(real_p).without_audio()
                     opened_clips.append(v)
+                    speed = clip_info.speed or 1.0
+                    if speed != 1.0 and hasattr(vfx, "speedx"):
+                        v = v.fx(vfx.speedx, speed)
+
                     t_start = max(0.0, clip_info.trimStart or 0.0)
                     t_end = min(v.duration, t_start + clip_info.duration)
                     if t_end > t_start:
@@ -186,7 +225,7 @@ def run_render_task(job_id: str, req: ExportRequest):
                             sub_v = sub_v.crop(x_center=sub_v.w / 2, width=target_w)
                         video_clips.append(sub_v)
                 except Exception as e:
-                    print(f"Lỗi clip: {e}")
+                    print(f"Lỗi clip nền: {e}")
 
         # 2. Ảnh Comment
         for b in req.blocks:
@@ -201,31 +240,42 @@ def run_render_task(job_id: str, req: ExportRequest):
                         .resize(width=target_img_w)
                         .set_position((int(b.img_x * scale_factor), int(b.img_y * scale_factor)))
                     )
+                    if (b.opacity is not None) and b.opacity < 1.0 and hasattr(img_clip, "set_opacity"):
+                        img_clip = img_clip.set_opacity(b.opacity)
                     opened_clips.append(img_clip)
                     video_clips.append(img_clip)
                 except Exception as e:
                     print(f"Lỗi comment: {e}")
 
-        # 3. Ảnh Meme
+        # 3. Ảnh & Video Meme
         if req.meme_images:
             for m in req.meme_images:
                 m_path = resolve_local_path(m.image_path)
                 if os.path.exists(m_path):
                     try:
                         target_m_w = int(m.img_width * scale_factor)
+                        is_vid = m_path.lower().endswith((".mp4", ".mov", ".webm", ".mkv"))
+                        if is_vid:
+                            meme_clip = VideoFileClip(m_path).without_audio().subclip(0, min(m.duration, 15))
+                        else:
+                            meme_clip = ImageClip(m_path)
+
                         meme_clip = (
-                            ImageClip(m_path)
+                            meme_clip
                             .set_start(m.startTime)
                             .set_duration(m.duration)
                             .resize(width=target_m_w)
                             .set_position((int(m.img_x * scale_factor), int(m.img_y * scale_factor)))
                         )
+                        if (m.opacity is not None) and m.opacity < 1.0 and hasattr(meme_clip, "set_opacity"):
+                            meme_clip = meme_clip.set_opacity(m.opacity)
+
                         opened_clips.append(meme_clip)
                         video_clips.append(meme_clip)
                     except Exception as e:
                         print(f"Lỗi meme: {e}")
 
-        # 4. Mix Audio
+        # 4. Multi-track Audio
         all_audios = (req.voices or []) + (req.bgm_list or []) + (req.sound_fx_list or [])
         for a in all_audios:
             a_p = resolve_local_path(a.audio_path)
@@ -233,10 +283,13 @@ def run_render_task(job_id: str, req: ExportRequest):
                 try:
                     a_clip = AudioFileClip(a_p)
                     opened_clips.append(a_clip)
-                    a_clip = a_clip.subclip(0, min(a_clip.duration, a.duration)).set_start(a.startTime)
-                    vol_ratio = (a.volume if a.volume is not None else 100.0) / 100.0
-                    a_clip = a_clip.volumex(vol_ratio)
-                    audio_clips.append(a_clip)
+                    t_start = max(0.0, a.trimStart or 0.0)
+                    t_end = min(a_clip.duration, t_start + a.duration)
+                    if t_end > t_start:
+                        a_sub = a_clip.subclip(t_start, t_end).set_start(a.startTime)
+                        vol_ratio = (a.volume if a.volume is not None else 100.0) / 100.0
+                        a_sub = a_sub.volumex(vol_ratio)
+                        audio_clips.append(a_sub)
                 except Exception as e:
                     print(f"Lỗi audio: {e}")
 
@@ -245,6 +298,36 @@ def run_render_task(job_id: str, req: ExportRequest):
             state["error"] = "Không tìm thấy clip video hoặc ảnh hợp lệ."
             write_job_state(job_id, state)
             return
+
+        # Tính tổng thời lượng video để Watermark chạy xuyên suốt
+        total_dur = max([c.end for c in video_clips] + ([a.end for a in audio_clips] if audio_clips else [15.0]))
+
+        # 5. GẮN LỚP WATERMARK NẾU NGƯỜI DÙNG BẬT
+        if req.watermark and req.watermark.enabled:
+            try:
+                wm_img_path = os.path.join(TEMP_DIR, f"{job_id}_wm.png")
+                wm_scale = (req.watermark.scale or 1.0) * scale_factor
+                generate_watermark_image(
+                    text=req.watermark.text or "soichibiettuot",
+                    style=req.watermark.style or "W1",
+                    output_path=wm_img_path,
+                    scale=wm_scale
+                )
+                if os.path.exists(wm_img_path):
+                    real_wm_x = int((req.watermark.x or 20.0) * preview_scale * scale_factor)
+                    real_wm_y = int((req.watermark.y or 25.0) * preview_scale * scale_factor)
+                    wm_clip = (
+                        ImageClip(wm_img_path)
+                        .set_start(0)
+                        .set_duration(total_dur)
+                        .set_position((real_wm_x, real_wm_y))
+                    )
+                    if req.watermark.opacity is not None and hasattr(wm_clip, "set_opacity"):
+                        wm_clip = wm_clip.set_opacity(req.watermark.opacity)
+                    opened_clips.append(wm_clip)
+                    video_clips.append(wm_clip)
+            except Exception as e:
+                print(f"Lỗi render watermark: {e}")
 
         final_video = CompositeVideoClip(video_clips, size=(target_w, target_h))
         if audio_clips:
@@ -259,7 +342,7 @@ def run_render_task(job_id: str, req: ExportRequest):
 
         logger = CancellableRenderLogger(job_id)
         
-        # Chỉ định temp_audiofile nằm ở ổ D, không tạo file tạm ở ổ C
+        cpu_cores = os.cpu_count() or 8
         final_video.write_videofile(
             out_filepath,
             fps=req.fps or 30,
@@ -267,8 +350,9 @@ def run_render_task(job_id: str, req: ExportRequest):
             audio_codec="aac",
             temp_audiofile=temp_audiofile_path,
             remove_temp=True,
-            threads=4,
-            preset="fast",
+            threads=cpu_cores,
+            preset="veryfast",
+            ffmpeg_params=["-movflags", "+faststart"],
             logger=logger
         )
 
@@ -284,19 +368,15 @@ def run_render_task(job_id: str, req: ExportRequest):
         write_job_state(job_id, state)
 
     except InterruptedError:
-        print(f"[Render] Job {job_id} đã bị hủy bởi người dùng. Đang xóa sạch cache trên ổ D...")
         if final_video:
             try: final_video.close()
             except Exception: pass
         for c in opened_clips:
             try: c.close()
             except Exception: pass
-            
-        # Xóa sạch file xuất dở dang và cache tạm
         cleanup_job_temp_files(job_id, out_filepath)
-
         state["status"] = "cancelled"
-        state["error"] = "Đã hủy xuất video và dọn dẹp sạch sẽ ổ đĩa."
+        state["error"] = "Đã hủy xuất video."
         write_job_state(job_id, state)
 
     except Exception as err:
@@ -307,9 +387,7 @@ def run_render_task(job_id: str, req: ExportRequest):
         for c in opened_clips:
             try: c.close()
             except Exception: pass
-
         cleanup_job_temp_files(job_id, out_filepath)
-
         state["status"] = "error"
         state["error"] = str(err)
         write_job_state(job_id, state)
