@@ -20,7 +20,19 @@ import { VoiceTab } from "@/components/tabs/VoiceTab";
 import { TopicsTab } from "@/components/tabs/TopicsTab";
 import { BackgroundTab } from "@/components/tabs/BackgroundTab";
 import { AssetsTab } from "@/components/tabs/AssetsTab";
-import { Mic, Image as ImageIcon, Video, Sparkles, X, Film, CheckCircle2, Download, ShieldCheck, Move, Eye, EyeOff } from "lucide-react";
+import {
+  Mic,
+  Image as ImageIcon,
+  Video,
+  Sparkles,
+  X,
+  Film,
+  CheckCircle2,
+  Download,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 
 interface TimelineSnapshot {
   bgClips: BgClipItem[];
@@ -32,57 +44,64 @@ interface TimelineSnapshot {
 }
 
 export default function CapCutThreadsStudio() {
+
+  useEffect(() => {
+    const handleErr = (event: ErrorEvent) => {
+      if (event?.message?.includes("MetaMask") || event?.filename?.includes("inpage.js")) {
+        event.stopImmediatePropagation();
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("error", handleErr);
+    return () => window.removeEventListener("error", handleErr);
+  }, []);
+
   const API_BASE = "http://localhost:8000";
-
   const [currentView, setCurrentView] = useState<"editor" | "cover_maker" | "watermark_studio">("editor");
-
   const [leftTab, setLeftTab] = useState<"topics" | "tts" | "bg" | "assets">("tts");
   const [inspectorTab, setInspectorTab] = useState<"video" | "audio">("audio");
   const [voices, setVoices] = useState<Record<string, string>>({});
-
   const [standaloneText, setStandaloneText] = useState("");
   const [standaloneVoice, setStandaloneVoice] = useState("vi-VN-NamMinhNeural");
   const [standaloneSpeed, setStandaloneSpeed] = useState(50);
   const [isScanningOcr, setIsScanningOcr] = useState(false);
   const [isGeneratingTts, setIsGeneratingTts] = useState(false);
   const [latestAudio, setLatestAudio] = useState<GeneratedVoiceItem | null>(null);
-
   const [topics, setTopics] = useState<string[]>([]);
   const [currentTopic, setCurrentTopic] = useState("");
   const [topicImages, setTopicImages] = useState<any[]>([]);
-
   const [bgVideos, setBgVideos] = useState<BgData[]>([]);
   const [selectedBgUrl, setSelectedBgUrl] = useState<string>("");
-
   const [bgClips, setBgClips] = useState<BgClipItem[]>([]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
-
   const [blocks, setBlocks] = useState<TimelineBlock[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-
   const [voiceList, setVoiceList] = useState<VoiceItem[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
-
   const [bgmList, setBgmList] = useState<TimelineAudioItem[]>([]);
   const [soundFxList, setSoundFxList] = useState<TimelineAudioItem[]>([]);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
-
   const [memeImageList, setMemeImageList] = useState<TimelineMemeImageItem[]>([]);
   const [selectedMemeId, setSelectedMemeId] = useState<string | null>(null);
 
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-
-  // ĐIỀU KHIỂN WATERMARK RUNTIME TRÊN VIDEO
-  const [enableWatermark, setEnableWatermark] = useState<boolean>(true);
+  // --- HỆ THỐNG ĐIỀU KHIỂN & KÉO THẢ WATERMARK BẰNG HÌNH ẢNH ---
+  const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(true);
   const [watermarkStyle, setWatermarkStyle] = useState<"W1" | "W2" | "W3">("W1");
-  const [watermarkText, setWatermarkText] = useState<string>("soichibiettuot");
-  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(0.9);
+  const [watermarkFileName, setWatermarkFileName] = useState<string>("watermark_1.png");
+  const [watermarkX, setWatermarkX] = useState<number>(30);
+  const [watermarkY, setWatermarkY] = useState<number>(30);
+  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(90);
   const [watermarkScale, setWatermarkScale] = useState<number>(1.0);
-  const [watermarkPos, setWatermarkPos] = useState<{ x: number; y: number }>({ x: 20, y: 25 });
-  const [isDraggingWm, setIsDraggingWm] = useState<boolean>(false);
-  const dragWmStart = useRef<{ mouseX: number; mouseY: number; initX: number; initY: number }>({ mouseX: 0, mouseY: 0, initX: 0, initY: 0 });
 
+  const handleSelectWatermarkPreset = (preset: "W1" | "W2" | "W3") => {
+    setWatermarkStyle(preset);
+    if (preset === "W1") setWatermarkFileName("watermark_1.png");
+    if (preset === "W2") setWatermarkFileName("watermark_2.png");
+    if (preset === "W3") setWatermarkFileName("watermark_3.png");
+  };
+
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [exportRes, setExportRes] = useState<"1080p" | "2k" | "4k">("1080p");
   const [isRendering, setIsRendering] = useState(false);
@@ -91,8 +110,11 @@ export default function CapCutThreadsStudio() {
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // --- UNDO / REDO SNAPSHOTS ---
   const [undoStack, setUndoStack] = useState<TimelineSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<TimelineSnapshot[]>([]);
+  const canUndo = undoStack.length > 0;
+  const canRedo = redoStack.length > 0;
 
   const recordHistory = useCallback(() => {
     setUndoStack((prev) => {
@@ -123,7 +145,6 @@ export default function CapCutThreadsStudio() {
     };
     setRedoStack((p) => [...p, currentSnap]);
     setUndoStack((p) => p.slice(0, p.length - 1));
-
     setBgClips(prevSnap.bgClips);
     setBlocks(prevSnap.blocks);
     setVoiceList(prevSnap.voiceList || []);
@@ -145,7 +166,6 @@ export default function CapCutThreadsStudio() {
     };
     setUndoStack((p) => [...p, currentSnap]);
     setRedoStack((p) => p.slice(0, p.length - 1));
-
     setBgClips(nextSnap.bgClips);
     setBlocks(nextSnap.blocks);
     setVoiceList(nextSnap.voiceList || []);
@@ -187,17 +207,51 @@ export default function CapCutThreadsStudio() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRendering, showExportModal, handleCancelExportVideo]);
 
+    // --- QUẢN LÝ RESIZE KÉO THỦ CÔNG TIMELINE ---
+  const [timelineHeight, setTimelineHeight] = useState<number>(260);
+  const [isResizingTl, setIsResizingTl] = useState<boolean>(false);
+  const resizeStartY = useRef<number>(0);
+  const startTlHeight = useRef<number>(260);
+
+  const handleStartResizeTl = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingTl(true);
+    resizeStartY.current = e.clientY;
+    startTlHeight.current = timelineHeight;
+  };
+
+  useEffect(() => {
+    const handleMouseMoveTl = (e: MouseEvent) => {
+      if (!isResizingTl) return;
+      const delta = resizeStartY.current - e.clientY;
+      const newH = Math.min(Math.max(80, startTlHeight.current + delta), 600);
+      setTimelineHeight(newH);
+    };
+    const handleMouseUpTl = () => {
+      if (isResizingTl) setIsResizingTl(false);
+    };
+    if (isResizingTl) {
+      window.addEventListener("mousemove", handleMouseMoveTl);
+      window.addEventListener("mouseup", handleMouseUpTl);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMoveTl);
+      window.removeEventListener("mouseup", handleMouseUpTl);
+    };
+  }, [isResizingTl]);
+
   const [showTimeline, setShowTimeline] = useState<boolean>(true);
   const [showZoomPanel, setShowZoomPanel] = useState<boolean>(true);
   const [zoomScale, setZoomScale] = useState(1);
-
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef<{ mouseX: number; mouseY: number; initialX: number; initialY: number }>({
-    mouseX: 0, mouseY: 0, initialX: 0, initialY: 0,
+    mouseX: 0,
+    mouseY: 0,
+    initialX: 0,
+    initialY: 0,
   });
 
   const baseScale = 320 / 1080;
-
   const bgEnds = bgClips.map((c) => c.startTime + c.duration);
   const blockEnds = blocks.map((b) => b.startTime + b.duration);
   const voiceEnds = voiceList.map((v) => v.startTime + v.duration);
@@ -230,7 +284,19 @@ export default function CapCutThreadsStudio() {
   const loadTopicImages = (topic: string) => {
     fetch(`${API_BASE}/api/topics/images?topic_name=${encodeURIComponent(topic)}`)
       .then((r) => r.json())
-      .then(setTopicImages)
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const formatted = data.map((item: any) => ({
+            ...item,
+            url: item.url?.startsWith("http")
+              ? item.url
+              : `${API_BASE}${item.url?.startsWith("/") ? "" : "/"}${item.url}`
+          }));
+          setTopicImages(formatted);
+        } else {
+          setTopicImages([]);
+        }
+      })
       .catch(() => {});
   };
 
@@ -257,7 +323,7 @@ export default function CapCutThreadsStudio() {
       duration: bg.duration,
       maxDuration: bg.maxDuration || bg.duration,
       trimStart: 0,
-      thumbs: bg.thumbs || []
+      thumbs: bg.thumbs || [],
     };
     setBgClips((prev) => [...prev, newClip]);
     setSelectedClipId(newClip.id);
@@ -278,7 +344,6 @@ export default function CapCutThreadsStudio() {
       volume: 100,
       speed: 1.0,
     };
-
     if (type === "bgm") {
       setBgmList((prev) => [...prev, newAudio]);
     } else {
@@ -345,22 +410,29 @@ export default function CapCutThreadsStudio() {
     setSelectedVoiceId(newVoice.id);
   };
 
-  const handleAddManualVoiceToTimeline = (voiceItem: { name: string; url: string; duration: number; path: string }) => {
+    const handleAddManualVoiceToTimeline = (voiceItem: { name: string; url: string; duration: number; path: string }) => {
     recordHistory();
-    const nextStart = voiceList.length > 0 ? Math.max(...voiceList.map((v) => v.startTime + v.duration)) : 0;
-    const newVoice: VoiceItem = {
-      id: "voice_" + Date.now(),
-      name: voiceItem.name,
-      url: voiceItem.url,
-      path: voiceItem.path,
-      startTime: Number(nextStart.toFixed(2)),
-      duration: voiceItem.duration,
-      maxDuration: voiceItem.duration,
-      trimStart: 0,
-      speed: 1.0,
-    };
-    setVoiceList((prev) => [...prev, newVoice]);
-    setSelectedVoiceId(newVoice.id);
+    const dur = Number(voiceItem.duration) || 3.0;
+    setVoiceList((prev) => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+      const nextStart = safePrev.length > 0 
+        ? Math.max(...safePrev.map((v) => (v.startTime || 0) + (v.duration || 0))) 
+        : Number(currentTime.toFixed(2));
+
+      const newVoice: VoiceItem = {
+        id: "voice_" + Date.now(),
+        name: voiceItem.name || "Voice Audio",
+        url: voiceItem.url,
+        path: voiceItem.path || voiceItem.url,
+        startTime: Number(nextStart.toFixed(2)),
+        duration: dur,
+        maxDuration: dur,
+        trimStart: 0,
+        speed: 1.0,
+      };
+      setSelectedVoiceId(newVoice.id);
+      return [...safePrev, newVoice];
+    });
   };
 
   const handleCreateTopic = async (name: string) => {
@@ -449,7 +521,7 @@ export default function CapCutThreadsStudio() {
           text: standaloneText,
           voice: standaloneVoice,
           speed_level: standaloneSpeed,
-          topic_name: currentTopic || "general"
+          topic_name: currentTopic || "general",
         }),
       });
       const data = await res.json();
@@ -474,22 +546,42 @@ export default function CapCutThreadsStudio() {
     }
   };
 
+    const handleDirectAddBlock = (imgData: any) => {
+    recordHistory();
+    const lastBlock = blocks[blocks.length - 1];
+    const nextStart = lastBlock ? Number((lastBlock.startTime + lastBlock.duration).toFixed(2)) : Number(currentTime.toFixed(2));
+    const rawUrl = imgData.url || imgData.image_url || imgData.imageUrl || "";
+    const cleanPath = rawUrl.startsWith("/") ? rawUrl : "/" + rawUrl;
+    const fullUrl = rawUrl.startsWith("http") ? rawUrl : (API_BASE + cleanPath);
+    const p = imgData.path || imgData.image_path || fullUrl;
+    const newBlock: TimelineBlock = {
+      id: "block_" + Date.now(),
+      image_url: fullUrl,
+      image_path: p,
+      startTime: nextStart,
+      duration: 3.0,
+      img_x: 140,
+      img_y: 450,
+      img_width: 800,
+      borderRadius: 12,
+      opacity: 1.0,
+    };
+    setBlocks((prev) => [...prev, newBlock]);
+    setSelectedBlockId(newBlock.id);
+  };
   const handleUploadImageToTopic = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !currentTopic) return;
     const file = e.target.files[0];
     const fd = new FormData();
     fd.append("topic_name", currentTopic);
     fd.append("file", file);
-
     try {
       const res = await fetch(`${API_BASE}/api/topics/upload-image`, { method: "POST", body: fd });
       const data = await res.json();
       loadTopicImages(currentTopic);
-
       recordHistory();
       const lastBlock = blocks[blocks.length - 1];
       const nextStartTime = lastBlock ? lastBlock.startTime + lastBlock.duration : 0;
-
       const newBlock: TimelineBlock = {
         id: "block_" + Date.now(),
         image_path: data.path,
@@ -527,13 +619,13 @@ export default function CapCutThreadsStudio() {
   const activeBgClip = bgClips.find((c) => c.id === selectedClipId) || null;
   const activeMemeItem = memeImageList.find((m) => m.id === selectedMemeId) || null;
 
-  const previewActiveBlock = blocks.find((b) => {
-    return currentTime >= b.startTime && currentTime <= b.startTime + b.duration;
-  }) || null;
-
-  const currentActiveBgClip = bgClips.find(
-    (c) => currentTime >= c.startTime && currentTime <= c.startTime + c.duration
+    const currentActiveBgClip = bgClips.find(
+    (c) => currentTime >= c.startTime && currentTime <= (c.startTime + c.duration)
   ) || null;
+  const activeTimelineBgUrl = currentActiveBgClip ? currentActiveBgClip.url : "";
+
+  const previewActiveBlock =
+    blocks.find((b) => currentTime >= b.startTime && currentTime <= b.startTime + b.duration) || null;
 
   const handleMouseDownOnImage = (e: React.MouseEvent) => {
     if (!previewActiveBlock) return;
@@ -558,16 +650,15 @@ export default function CapCutThreadsStudio() {
       const scaleMultiplier = baseScale * zoomScale;
       const moveXOriginal = Math.round(deltaX / scaleMultiplier);
       const moveYOriginal = Math.round(deltaY / scaleMultiplier);
-
       const newX = Math.max(0, Math.min(1080 - (activeBlock.img_width || 800), dragStartPos.current.initialX + moveXOriginal));
       const newY = Math.max(0, Math.min(1920 - 150, dragStartPos.current.initialY + moveYOriginal));
-
       setBlocks((prev) =>
         prev.map((b) => (b.id === activeBlock.id ? { ...b, img_x: newX, img_y: newY } : b))
       );
     };
-
-    const handleMouseUp = () => { if (isDragging) setIsDragging(false); };
+    const handleMouseUp = () => {
+      if (isDragging) setIsDragging(false);
+    };
     if (isDragging) {
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
@@ -578,40 +669,6 @@ export default function CapCutThreadsStudio() {
     };
   }, [isDragging, activeBlock, zoomScale, baseScale]);
 
-  // KÉO THẢ DI CHUYỂN WATERMARK
-  const handleMouseDownOnWatermark = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setIsDraggingWm(true);
-    dragWmStart.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      initX: watermarkPos.x,
-      initY: watermarkPos.y,
-    };
-  };
-
-  useEffect(() => {
-    const handleMouseMoveWm = (e: MouseEvent) => {
-      if (!isDraggingWm) return;
-      const deltaX = e.clientX - dragWmStart.current.mouseX;
-      const deltaY = e.clientY - dragWmStart.current.mouseY;
-      setWatermarkPos({
-        x: Math.max(0, Math.min(260, dragWmStart.current.initX + deltaX)),
-        y: Math.max(0, Math.min(520, dragWmStart.current.initY + deltaY)),
-      });
-    };
-    const handleMouseUpWm = () => { if (isDraggingWm) setIsDraggingWm(false); };
-    if (isDraggingWm) {
-      window.addEventListener("mousemove", handleMouseMoveWm);
-      window.addEventListener("mouseup", handleMouseUpWm);
-    }
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMoveWm);
-      window.removeEventListener("mouseup", handleMouseUpWm);
-    };
-  }, [isDraggingWm]);
-
   const handleStartExportVideo = async () => {
     if (bgClips.length === 0 && blocks.length === 0) {
       alert("Vui lòng thêm ít nhất 1 video nền hoặc 1 ảnh comment vào timeline!");
@@ -620,7 +677,6 @@ export default function CapCutThreadsStudio() {
     setIsRendering(true);
     setRenderedUrl(null);
     setRenderProgress(0);
-
     try {
       const res = await fetch(`${API_BASE}/api/video/export-task`, {
         method: "POST",
@@ -680,28 +736,25 @@ export default function CapCutThreadsStudio() {
             volume: s.volume !== undefined ? s.volume : 100.0,
           })),
           watermark: {
-            enabled: enableWatermark,
+            enabled: watermarkEnabled,
             style: watermarkStyle,
-            text: watermarkText,
-            opacity: watermarkOpacity,
+            file_name: watermarkFileName,
+            opacity: watermarkOpacity / 100,
             scale: watermarkScale,
-            x: watermarkPos.x,
-            y: watermarkPos.y,
+            x: watermarkX,
+            y: watermarkY,
           },
         }),
       });
-
       const data = await res.json();
       if (data.job_id) {
         setRenderJobId(data.job_id);
         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-
         pollingIntervalRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`${API_BASE}/api/video/progress/${data.job_id}`);
             const pollData = await pollRes.json();
             setRenderProgress(pollData.progress || 0);
-
             if (pollData.status === "completed") {
               if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
               setRenderedUrl(pollData.video_url);
@@ -743,82 +796,96 @@ export default function CapCutThreadsStudio() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 font-sans select-none overflow-hidden">
-      <Header
-        showTimeline={showTimeline}
-        setShowTimeline={setShowTimeline}
-        handleRenderTimeline={() => setShowExportModal(true)}
-        onOpenCoverMaker={() => setCurrentView("cover_maker")}
-        onOpenWatermarkStudio={() => setCurrentView("watermark_studio")}
-        isRendering={isRendering}
-        hasBlocks={blocks.length > 0 || bgClips.length > 0}
-      />
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0d0e12] text-slate-100 select-none">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
+        {/* HEADER CHÍNH */}
+        <Header
+          {...({
+            currentView,
+            setCurrentView,
+            showExportModal,
+            setShowExportModal,
+            isRendering,
+            renderProgress,
+            showTimeline,
+            setShowTimeline,
+            onOpenCoverMaker: () => setCurrentView('cover_maker'),
+            onOpenWatermarkStudio: () => setCurrentView('watermark_studio'),
+          } as any)}
+        />
 
-      {/* KHUNG GIỮA: MỞ RỘNG CON LĂN TRỤC DỌC TOÀN BỘ (ĐÃ FIX MẤT CON LĂN) */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* TABS TRÁI */}
-        <div className="w-[340px] border-r border-slate-800/80 bg-slate-900/30 flex flex-col shrink-0 h-full overflow-hidden">
-          <div className="flex border-b border-slate-800/80 bg-slate-950/60 text-xs shrink-0">
-            <button
-              onClick={() => setLeftTab("tts")}
-              className={`flex-1 py-2.5 font-semibold flex items-center justify-center gap-1.5 transition ${
-                leftTab === "tts" ? "border-b-2 border-amber-400 text-amber-300 bg-slate-900/80" : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Mic size={13} /> Voice
-            </button>
-            <button
-              onClick={() => setLeftTab("topics")}
-              className={`flex-1 py-2.5 font-semibold flex items-center justify-center gap-1.5 transition ${
-                leftTab === "topics" ? "border-b-2 border-rose-500 text-rose-300 bg-slate-900/80" : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <ImageIcon size={13} /> Kho Ảnh
-            </button>
-            <button
-              onClick={() => setLeftTab("bg")}
-              className={`flex-1 py-2.5 font-semibold flex items-center justify-center gap-1.5 transition ${
-                leftTab === "bg" ? "border-b-2 border-teal-400 text-teal-300 bg-slate-900/80" : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Video size={13} /> Nền
-            </button>
-            <button
-              onClick={() => setLeftTab("assets")}
-              className={`flex-1 py-2.5 font-semibold flex items-center justify-center gap-1.5 transition ${
-                leftTab === "assets" ? "border-b-2 border-indigo-400 text-indigo-300 bg-slate-900/80" : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Sparkles size={13} /> Nhạc & Meme
-            </button>
-          </div>
+        {/* WORKSPACE AREA */}
+        <div className="flex-1 flex min-h-0 relative">
+          {/* CỘT TABS TÀI NGUYÊN BÊN TRÁI */}
+          <div className="w-[380px] shrink-0 border-r border-slate-800 bg-[#121316] flex flex-col h-full overflow-hidden">
+            {/* Tab Buttons */}
+            <div className="flex border-b border-slate-800 bg-[#16181d] shrink-0">
+              <button
+                onClick={() => setLeftTab("tts")}
+                className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                  leftTab === "tts"
+                    ? "border-b-2 border-cyan-400 text-cyan-300 bg-cyan-950/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Mic size={14} /> Voice
+              </button>
+              <button
+                onClick={() => setLeftTab("topics")}
+                className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                  leftTab === "topics"
+                    ? "border-b-2 border-cyan-400 text-cyan-300 bg-cyan-950/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <ImageIcon size={14} /> Kho Ảnh
+              </button>
+              <button
+                onClick={() => setLeftTab("bg")}
+                className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                  leftTab === "bg"
+                    ? "border-b-2 border-cyan-400 text-cyan-300 bg-cyan-950/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Video size={14} /> Nền
+              </button>
+              <button
+                onClick={() => setLeftTab("assets")}
+                className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                  leftTab === "assets"
+                    ? "border-b-2 border-cyan-400 text-cyan-300 bg-cyan-950/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Sparkles size={14} /> Nhạc & Meme
+              </button>
+            </div>
 
-          <div className="flex-1 min-h-0 p-3.5 flex flex-col overflow-hidden">
-            {leftTab === "tts" && (
-              <div className="flex-1 overflow-y-auto pr-1">
+            {/* Tab Contents */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+              {leftTab === "tts" && (
                 <VoiceTab
+                  {...({ onOcrScan: handleOcrToStandaloneText } as any)}
+                  voices={voices}
                   standaloneText={standaloneText}
                   setStandaloneText={setStandaloneText}
                   standaloneVoice={standaloneVoice}
                   setStandaloneVoice={setStandaloneVoice}
                   standaloneSpeed={standaloneSpeed}
                   setStandaloneSpeed={setStandaloneSpeed}
-                  voices={voices}
                   isScanningOcr={isScanningOcr}
                   isGeneratingTts={isGeneratingTts}
                   latestAudio={latestAudio}
-                  handleOcrToStandaloneText={handleOcrToStandaloneText}
-                  handleGenerateStandaloneVoice={handleGenerateStandaloneVoice}
-                  handleAddLatestVoiceToTimeline={handleAddLatestVoiceToTimeline}
+                  onOcrScan={handleOcrToStandaloneText}
+                  onGenerateTts={handleGenerateStandaloneVoice}
+                  onAddLatestVoice={handleAddLatestVoiceToTimeline}
+                  onAddManualVoice={handleAddManualVoiceToTimeline}
                   onAddManualVoiceToTimeline={handleAddManualVoiceToTimeline}
-                  currentTopic={currentTopic}
-                  topics={topics.length > 0 ? topics : ["general"]}
                 />
-              </div>
-            )}
-
-            {leftTab === "topics" && (
-              <TopicsTab
+              )}
+                            {leftTab === "topics" && (
+                <TopicsTab
                 topics={topics}
                 currentTopic={currentTopic}
                 setCurrentTopic={(t) => {
@@ -829,114 +896,154 @@ export default function CapCutThreadsStudio() {
                 apiBase={API_BASE}
                 activeBlock={activeBlock}
                 setBlocks={setBlocks}
+                onAddImageDirectly={handleDirectAddBlock}
                 handleCreateTopic={handleCreateTopic}
                 handleRenameTopic={handleRenameTopic}
                 handleDeleteTopic={handleDeleteTopic}
                 handleUploadImageToTopic={handleUploadImageToTopic}
                 handleDeleteSingleImage={handleDeleteSingleImage}
               />
-            )}
-
-            {leftTab === "bg" && (
-              <div className="flex-1 overflow-y-auto pr-1">
+              )}
+                                          {leftTab === "bg" && (
                 <BackgroundTab
-                  bgVideos={bgVideos}
-                  selectedBg={selectedBgUrl}
-                  setSelectedBg={setSelectedBgUrl}
-                  handleUploadBg={handleUploadBg}
-                  onAddBgToTimeline={handleAddBgToTimeline}
+                  {...({
+                    bgVideos,
+                    selectedBg: selectedBgUrl,
+                    selectedBgUrl: selectedBgUrl,
+                    setSelectedBg: (url: string) => {
+                      setSelectedBgUrl(url);
+                    },
+                    setSelectedBgUrl: (url: string) => {
+                      setSelectedBgUrl(url);
+                    },
+                    onSelectBg: (target: any) => {
+                      if (typeof target === "object" && target !== null && target.url) {
+                        setSelectedBgUrl(target.url);
+                        handleAddBgToTimeline(target);
+                        return;
+                      }
+                      const urlStr = typeof target === "string" ? target : "";
+                      setSelectedBgUrl(urlStr);
+                      const matched = bgVideos.find((b) => b.url === urlStr);
+                      if (matched) {
+                        handleAddBgToTimeline(matched);
+                      } else if (urlStr) {
+                        handleAddBgToTimeline({
+                          name: urlStr.split("/").pop() || "Background Video",
+                          url: urlStr.startsWith("http") ? urlStr : `${API_BASE}${urlStr.startsWith("/") ? "" : "/"}${urlStr}`,
+                          duration: 10.0,
+                          maxDuration: 10.0,
+                          thumbs: [],
+                          type: "video"
+                        } as any);
+                      }
+                    },
+                    onAddBgToTimeline: (bg: any) => {
+                      if (typeof bg === "object" && bg !== null) {
+                        setSelectedBgUrl(bg.url || "");
+                        handleAddBgToTimeline(bg);
+                      } else {
+                        const matched = bgVideos.find((b) => b.url === bg);
+                        if (matched) handleAddBgToTimeline(matched);
+                      }
+                    },
+                    onAddBg: (bg: any) => {
+                      if (typeof bg === "object" && bg !== null) {
+                        setSelectedBgUrl(bg.url || "");
+                        handleAddBgToTimeline(bg);
+                      }
+                    },
+                    onUploadBg: handleUploadBg
+                  } as any)}
                 />
-              </div>
-            )}
-
-            {leftTab === "assets" && (
-              <div className="flex-1 overflow-y-auto pr-1">
+              )}
+                            {leftTab === "assets" && (
                 <AssetsTab
-                  onAddAudioToTimeline={handleAddAudioToTimeline}
-                  onAddMemeImageToTimeline={handleAddMemeImageToTimeline}
+                  {...({
+                    onAddAudio: handleAddAudioToTimeline,
+                    onAddMeme: handleAddMemeImageToTimeline,
+                    onSelectAudio: handleAddAudioToTimeline,
+                    onSelectMeme: handleAddMemeImageToTimeline
+                  } as any)}
                 />
+              )}
+            </div>
+          </div>
+
+          {/* KHUNG PREVIEW TRUNG TÂM */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0b0e] relative min-w-0">
+          {/* THANH ĐIỀU KHIỂN WATERMARK: GHIM CỐ ĐỊNH TRÊN ĐỈNH (SHRINK-0) */}
+          <div className="w-full py-2 px-3 flex items-center justify-center shrink-0 border-b border-slate-800/80 bg-[#101217]/95 z-30 shadow-md">
+            <div className="flex items-center gap-2 bg-[#181a20] px-3 py-1 rounded-full border border-slate-700 text-xs">
+              <button
+                onClick={() => setWatermarkEnabled(!watermarkEnabled)}
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition ${
+                  watermarkEnabled
+                    ? "bg-emerald-950 border-emerald-400 text-emerald-300"
+                    : "bg-slate-800 border-slate-700 text-slate-400"
+                }`}
+              >
+                {watermarkEnabled ? <Eye size={12} /> : <EyeOff size={12} />}
+                <span>WM: {watermarkEnabled ? "BẬT" : "TẮT"}</span>
+              </button>
+
+              <div className="h-3 w-[1px] bg-slate-700 mx-1" />
+
+              <div className="flex items-center bg-slate-900 border border-slate-800 rounded-full p-0.5">
+                {(["W1", "W2", "W3"] as const).map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => handleSelectWatermarkPreset(preset)}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition ${
+                      watermarkStyle === preset
+                        ? "bg-emerald-500 text-slate-950 shadow"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* PREVIEW PLAYER: BẬT OVERFLOW-Y-AUTO ĐỂ LUÔN CÓ CON LĂN CUỘN MƯỢT MÀ */}
-        <div className="flex-1 relative flex flex-col items-center overflow-y-auto overflow-x-hidden p-3 min-h-0">
-          {/* THANH ĐIỀU KHIỂN WATERMARK: CÓ NÚT BẬT/TẮT, CHỌN KIỂU W1/W2/W3 VÀ SLIDER */}
-          <div className="sticky top-0 z-40 mb-2 flex items-center gap-2 bg-slate-900/95 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full shadow-2xl text-xs shrink-0">
-            <button
-              onClick={() => setEnableWatermark(!enableWatermark)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-bold transition ${
-                enableWatermark ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/50" : "bg-slate-800 text-slate-400"
-              }`}
-            >
-              {enableWatermark ? <Eye size={13} /> : <EyeOff size={13} />}
-              <span>{enableWatermark ? "Watermark Bật" : "Watermark Tắt"}</span>
-            </button>
+              <div className="h-3 w-[1px] bg-slate-700 mx-1" />
 
-            {enableWatermark && (
-              <>
-                <div className="h-3 w-[1px] bg-slate-800" />
-                {/* DROPDOWN CHỌN MẪU WATERMARK W1, W2, W3 */}
-                <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
-                  {(["W1", "W2", "W3"] as const).map((wm) => (
-                    <button
-                      key={wm}
-                      onClick={() => {
-                        setWatermarkStyle(wm);
-                        if (wm === "W1") setWatermarkText("soichibiettuot");
-                        else setWatermarkText("Sợi Chỉ Biết Tuốt");
-                      }}
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
-                        watermarkStyle === wm ? "bg-emerald-600 text-white shadow" : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      {wm}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                <span className="opacity-80">Mờ:</span>
+                <input
+                  type="range"
+                  min="5"
+                  max="100"
+                  value={watermarkOpacity}
+                  onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
+                  className="w-14 accent-emerald-400 h-1 cursor-pointer"
+                />
+                <span className="font-mono text-emerald-400 text-[10px] w-6">{watermarkOpacity}%</span>
+              </div>
 
-                <div className="h-3 w-[1px] bg-slate-800" />
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-slate-400">Độ mờ:</span>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1.0}
-                    step={0.05}
-                    value={watermarkOpacity}
-                    onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
-                    className="w-14 accent-emerald-500 h-1 bg-slate-800 rounded cursor-pointer"
-                  />
-                  <span className="font-mono text-emerald-400 text-[10px] min-w-7">{Math.round(watermarkOpacity * 100)}%</span>
-                </div>
+              <div className="h-3 w-[1px] bg-slate-700 mx-1" />
 
-                <div className="h-3 w-[1px] bg-slate-800" />
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-slate-400">Size:</span>
-                  <input
-                    type="range"
-                    min={0.6}
-                    max={1.6}
-                    step={0.1}
-                    value={watermarkScale}
-                    onChange={(e) => setWatermarkScale(Number(e.target.value))}
-                    className="w-14 accent-emerald-500 h-1 bg-slate-800 rounded cursor-pointer"
-                  />
-                  <span className="font-mono text-emerald-400 text-[10px] min-w-6">{watermarkScale}x</span>
-                </div>
-
-                <div className="h-3 w-[1px] bg-slate-800" />
-                <span className="text-[10px] text-amber-400 flex items-center gap-1 font-medium">
-                  <Move size={11} /> Kéo vị trí trên video
-                </span>
-              </>
-            )}
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                <span className="opacity-80">Size:</span>
+                <input
+                  type="range"
+                  min="0.4"
+                  max="2.0"
+                  step="0.05"
+                  value={watermarkScale}
+                  onChange={(e) => setWatermarkScale(Number(e.target.value))}
+                  className="w-14 accent-emerald-400 h-1 cursor-pointer"
+                />
+                <span className="font-mono text-emerald-400 text-[10px] w-5">{watermarkScale}x</span>
+              </div>
+            </div>
           </div>
 
-          <div className="relative my-auto">
+          {/* VÙNG CUỘN VIDEO: TỰ DO CUỘN DỌC TẬN ĐỈNH & CUỘN NGANG KHÔNG BỊ KHUẤT */}
+          <div className="flex-1 overflow-y-auto overflow-x-auto p-4 flex flex-col items-center justify-start min-h-0">
             <PreviewPlayer
-              selectedBg={currentActiveBgClip?.url || ""}
+              hasBgClipOnTimeline={!!currentActiveBgClip}
+              bgClips={bgClips}
+              selectedBg={activeTimelineBgUrl}
               previewActiveBlock={previewActiveBlock}
               baseScale={baseScale}
               zoomScale={zoomScale}
@@ -952,125 +1059,96 @@ export default function CapCutThreadsStudio() {
               isPlaying={isPlaying}
               setIsPlaying={setIsPlaying}
               setBlocks={setBlocks}
-              bgStartTime={currentActiveBgClip?.startTime || 0}
-              bgDuration={currentActiveBgClip?.duration || 10}
-              bgTrimStart={currentActiveBgClip?.trimStart || 0}
               memeImageList={memeImageList}
               setMemeImageList={setMemeImageList}
               selectedMemeId={selectedMemeId}
               setSelectedMemeId={setSelectedMemeId}
+              watermarkEnabled={watermarkEnabled}
+              setWatermarkEnabled={setWatermarkEnabled}
+              watermarkX={watermarkX}
+              setWatermarkX={setWatermarkX}
+              watermarkY={watermarkY}
+              setWatermarkY={setWatermarkY}
+              watermarkOpacity={watermarkOpacity}
+              setWatermarkOpacity={setWatermarkOpacity}
+              watermarkScale={watermarkScale}
+              setWatermarkScale={setWatermarkScale}
+              watermarkFileName={watermarkFileName}
+              setWatermarkFileName={setWatermarkFileName}
             />
-
-            {/* WATERMARK OVERLAY KÉO THẢ TỰ DO */}
-            {enableWatermark && (
-              <div
-                onMouseDown={handleMouseDownOnWatermark}
-                style={{
-                  left: `${watermarkPos.x}px`,
-                  top: `${watermarkPos.y}px`,
-                  opacity: watermarkOpacity,
-                  transform: `scale(${watermarkScale * zoomScale})`,
-                  transformOrigin: "top left",
-                }}
-                className={`absolute z-40 cursor-grab active:cursor-grabbing select-none transition-shadow ${
-                  isDraggingWm ? "ring-2 ring-emerald-400 shadow-2xl rounded-full" : "hover:ring-1 hover:ring-white/50"
-                }`}
-              >
-                {/* W1 CHUẨN MẪU */}
-                {watermarkStyle === "W1" && (
-                  <div className="flex items-center gap-2 bg-[#1e222b]/95 backdrop-blur-md pl-1 pr-3 py-1 rounded-full border border-slate-700 shadow-2xl pointer-events-none">
-                    <div className="w-5 h-5 rounded-full bg-[#f97316] p-0.5 border border-white/50 shrink-0 overflow-hidden flex items-center justify-center">
-                      <img src="http://localhost:8000/media/mascots/mascot_m1.png" className="w-full h-full object-contain" />
-                    </div>
-                    <div className="flex items-center gap-1 leading-none">
-                      <span className="font-extrabold text-white text-[11px] tracking-wide">
-                        {watermarkText}
-                      </span>
-                      <svg className="w-2.5 h-2.5 text-[#0095f6] fill-current shrink-0" viewBox="0 0 24 24">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
-                      </svg>
-                    </div>
-                  </div>
-                )}
-
-                {/* W2 CHUẨN MẪU: @ VÀNG NỔI BẬT */}
-                {watermarkStyle === "W2" && (
-                  <div className="flex items-center gap-1.5 text-white font-black text-xs drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)] pointer-events-none tracking-tight">
-                    <span className="font-mono text-[#f59e0b] text-base font-black">@</span>
-                    <span className="uppercase">{watermarkText}</span>
-                  </div>
-                )}
-
-                {/* W3 CHUẨN MẪU: RUY BĂNG CAM CÓ VIỀN TRẮNG */}
-                {watermarkStyle === "W3" && (
-                  <div className="relative inline-flex items-center pointer-events-none">
-                    <div className="absolute -bottom-0.5 -right-1 w-4 h-3 bg-[#16a34a] rounded-sm transform rotate-12 -z-10" />
-                    <div className="px-3 py-1 bg-gradient-to-r from-[#ea580c] to-[#f97316] text-white font-black text-[10px] rounded-xl shadow-xl border border-white uppercase tracking-wider transform rotate-[-2deg]">
-                      {watermarkText}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* INSPECTOR */}
-        <Inspector
-          inspectorTab={inspectorTab}
-          setInspectorTab={setInspectorTab}
-          activeBlock={activeBlock}
-          setBlocks={setBlocks}
-          activeAudioItem={activeAudioItem}
-          onUpdateAudioItem={handleUpdateAudioItem}
-          activeVoiceItem={activeVoiceItem}
-          onUpdateVoiceItem={handleUpdateVoiceItem}
-          activeBgClip={activeBgClip}
-          onUpdateBgClip={handleUpdateBgClip}
-          activeMemeItem={activeMemeItem}
-          onUpdateMemeItem={handleUpdateMemeItem}
-          handleUpdateBlockVoice={handleUpdateBlockVoice}
-          voices={voices}
-        />
-      </div>
+        {/* CỘT INSPECTOR BÊN PHẢI */}
+          <Inspector
+            inspectorTab={inspectorTab}
+            setInspectorTab={setInspectorTab}
+            activeBlock={activeBlock}
+            setBlocks={setBlocks}
+            activeAudioItem={activeAudioItem}
+            onUpdateAudioItem={handleUpdateAudioItem}
+            activeVoiceItem={activeVoiceItem}
+            onUpdateVoiceItem={handleUpdateVoiceItem}
+            activeBgClip={activeBgClip}
+            onUpdateBgClip={handleUpdateBgClip}
+            activeMemeItem={activeMemeItem}
+            onUpdateMemeItem={handleUpdateMemeItem}
+            handleUpdateBlockVoice={handleUpdateBlockVoice}
+            voices={voices}
+          />
+        </div>
 
-      {/* TIMELINE */}
-      {showTimeline && (
-        <Timeline
-          bgClips={bgClips}
-          setBgClips={setBgClips}
-          selectedClipId={selectedClipId}
-          setSelectedClipId={setSelectedClipId}
-          blocks={blocks}
-          setBlocks={setBlocks}
-          selectedBlockId={selectedBlockId}
-          setSelectedBlockId={setSelectedBlockId}
-          voiceList={voiceList}
-          setVoiceList={setVoiceList}
-          selectedVoiceId={selectedVoiceId}
-          setSelectedVoiceId={setSelectedVoiceId}
-          currentTime={currentTime}
-          setCurrentTime={setCurrentTime}
-          totalDuration={totalDuration}
-          isPlaying={isPlaying}
-          setIsPlaying={setIsPlaying}
-          bgmList={bgmList}
-          setBgmList={setBgmList}
-          soundFxList={soundFxList}
-          setSoundFxList={setSoundFxList}
-          selectedAudioId={selectedAudioId}
-          setSelectedAudioId={setSelectedAudioId}
-          memeImageList={memeImageList}
-          setMemeImageList={setMemeImageList}
-          selectedMemeId={selectedMemeId}
-          setSelectedMemeId={setSelectedMemeId}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          canUndo={undoStack.length > 0}
-          canRedo={redoStack.length > 0}
-          onRecordHistory={recordHistory}
-        />
-      )}
+        {/* TIMELINE PHÍA DƯỚI (DUY NHẤT 1 KHỐI) */}
+        {/* THANH RESIZE KÉO THỦ CÔNG TIMELINE */}
+        <div
+          onMouseDown={handleStartResizeTl}
+          title="Giữ chuột và kéo lên/xuống để chỉnh độ cao Timeline"
+          className="h-2 w-full bg-[#181a20] hover:bg-cyan-500 active:bg-cyan-400 cursor-row-resize flex items-center justify-center transition-colors z-30 shrink-0 border-y border-slate-800"
+        >
+          <div className="w-12 h-1 bg-slate-600 rounded-full hover:bg-white pointer-events-none" />
+        </div>
+
+        {/* KHỐI TIMELINE */}
+        <div
+          style={{ height: showTimeline ? `${timelineHeight}px` : "46px" }}
+          className="flex flex-col shrink-0 overflow-hidden border-t border-slate-800 bg-[#121316] transition-[height] duration-75 select-none"
+        >
+          <Timeline
+            bgClips={bgClips}
+            setBgClips={setBgClips}
+            selectedClipId={selectedClipId}
+            setSelectedClipId={setSelectedClipId}
+            blocks={blocks}
+            setBlocks={setBlocks}
+            selectedBlockId={selectedBlockId}
+            setSelectedBlockId={setSelectedBlockId}
+            voiceList={voiceList}
+            setVoiceList={setVoiceList}
+            selectedVoiceId={selectedVoiceId}
+            setSelectedVoiceId={setSelectedVoiceId}
+            currentTime={currentTime}
+            setCurrentTime={setCurrentTime}
+            isPlaying={isPlaying}
+            setIsPlaying={setIsPlaying}
+            totalDuration={totalDuration}
+            bgmList={bgmList}
+            setBgmList={setBgmList}
+            soundFxList={soundFxList}
+            setSoundFxList={setSoundFxList}
+            selectedAudioId={selectedAudioId}
+            setSelectedAudioId={setSelectedAudioId}
+            memeImageList={memeImageList}
+            setMemeImageList={setMemeImageList}
+            selectedMemeId={selectedMemeId}
+            setSelectedMemeId={setSelectedMemeId}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onRecordHistory={recordHistory}
+          />
+        </div>
+      </div>
 
       {/* MODAL XUẤT VIDEO */}
       {showExportModal && (
@@ -1081,7 +1159,11 @@ export default function CapCutThreadsStudio() {
                 <Film size={16} className="text-rose-500" /> Xuất Bản Video 9:16
               </span>
               {!isRendering && (
-                <button onClick={() => setShowExportModal(false)} title="Đóng (ESC)" className="text-slate-400 hover:text-white p-1 rounded-lg">
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  title="Đóng (ESC)"
+                  className="text-slate-400 hover:text-white p-1 rounded-lg"
+                >
                   <X size={16} />
                 </button>
               )}
@@ -1092,8 +1174,14 @@ export default function CapCutThreadsStudio() {
                 <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                   <ShieldCheck size={14} className="text-emerald-400" /> Trạng thái Watermark:
                 </span>
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${enableWatermark ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}>
-                  {enableWatermark ? `Đang Bật (${watermarkStyle})` : "Đã Tắt"}
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                    watermarkEnabled
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "bg-slate-800 text-slate-400"
+                  }`}
+                >
+                  {watermarkEnabled ? `Đang Bật (${watermarkStyle})` : "Đã Tắt"}
                 </span>
               </div>
 
@@ -1129,14 +1217,12 @@ export default function CapCutThreadsStudio() {
                     </span>
                     <span className="font-mono text-white font-bold text-sm">{renderProgress}%</span>
                   </div>
-
                   <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-slate-800">
                     <div
                       style={{ width: `${renderProgress}%` }}
                       className="h-full bg-gradient-to-r from-rose-600 to-amber-500 rounded-full transition-all duration-300 shadow-[0_0_12px_rgba(244,63,94,0.6)]"
                     />
                   </div>
-
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-[10px] text-slate-400">
                       Bấm <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px] text-amber-300 font-mono">ESC</kbd> để hủy ngay
@@ -1157,7 +1243,11 @@ export default function CapCutThreadsStudio() {
                     <CheckCircle2 size={16} />
                     <span>Xuất video thành công 100%!</span>
                   </div>
-                  <a href={renderedUrl} download className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold flex items-center gap-1 shadow">
+                  <a
+                    href={renderedUrl}
+                    download
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold flex items-center gap-1 shadow"
+                  >
                     <Download size={12} /> Tải Về
                   </a>
                 </div>

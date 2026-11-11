@@ -10,14 +10,15 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from proglog import ProgressBarLogger
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMP_DIR = os.path.join(BASE_DIR, "temp_render")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 PROGRESS_DIR = os.path.join(BASE_DIR, "media", "progress_jobs")
+WATERMARK_DIR = os.path.join(BASE_DIR, "media", "watermarks")
 
-for p in [TEMP_DIR, OUTPUT_DIR, PROGRESS_DIR]:
+for p in [TEMP_DIR, OUTPUT_DIR, PROGRESS_DIR, WATERMARK_DIR]:
     os.makedirs(p, exist_ok=True)
 
 os.environ["TEMP"] = TEMP_DIR
@@ -113,7 +114,7 @@ class AudioTrackInput(BaseModel):
 class WatermarkInput(BaseModel):
     enabled: bool = False
     style: Optional[str] = "W1"
-    text: Optional[str] = "soichibiettuot"
+    image_url: Optional[str] = None
     opacity: Optional[float] = 0.9
     scale: Optional[float] = 1.0
     x: Optional[float] = 20.0
@@ -156,35 +157,21 @@ def resolve_local_path(url_or_path: str) -> str:
 
     return candidate
 
-def generate_watermark_image(text: str, style: str, output_path: str, scale: float = 1.0):
-    """Vẽ ảnh Watermark PNG trong suốt chuẩn thiết kế để overlay lên video"""
-    base_w, base_h = int(360 * scale), int(80 * scale)
-    img = Image.new("RGBA", (base_w, base_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    try:
-        font = ImageFont.truetype("arialbd.ttf", int(26 * scale))
-    except Exception:
-        font = ImageFont.load_default()
-
-    if style == "W1":
-        # Badge pill xám mờ + viền bo tròn
-        draw.rounded_rectangle([(0, 0), (base_w - 1, base_h - 1)], radius=int(base_h / 2), fill=(30, 34, 43, 230), outline=(71, 85, 105, 200), width=2)
-        # Hình tròn avatar vàng cam
-        pad = int(8 * scale)
-        r = base_h - 2 * pad
-        draw.ellipse([(pad, pad), (pad + r, pad + r)], fill=(249, 115, 22, 255), outline=(255, 255, 255, 180), width=2)
-        draw.text((pad + r + int(12 * scale), int(22 * scale)), text, font=font, fill=(255, 255, 255, 255))
-    elif style == "W2":
-        # Minimal text: @ màu vàng cam + text trắng viền đậm
-        draw.text((int(5 * scale), int(15 * scale)), "@", font=font, fill=(245, 158, 11, 255))
-        draw.text((int(35 * scale), int(15 * scale)), text, font=font, fill=(255, 255, 255, 255))
-    else:
-        # W3: Ribbon cam viền trắng
-        draw.rounded_rectangle([(0, int(6 * scale)), (base_w - 1, base_h - 1)], radius=int(14 * scale), fill=(234, 88, 12, 245), outline=(255, 255, 255, 220), width=2)
-        draw.text((int(20 * scale), int(20 * scale)), text.upper(), font=font, fill=(255, 255, 255, 255))
-
-    img.save(output_path, "PNG")
+def get_watermark_file_path(style: str, custom_url: Optional[str] = None) -> str:
+    if custom_url:
+        p = resolve_local_path(custom_url)
+        if os.path.exists(p):
+            return p
+    style_key = (style or "W1").lower()
+    candidates = [
+        os.path.join(WATERMARK_DIR, f"watermark_{style_key}.png"),
+        os.path.join(WATERMARK_DIR, f"watermark_{style_key}.jpg"),
+        os.path.join(BASE_DIR, "media", "mascots", f"mascot_{style_key}.png"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return ""
 
 def run_render_task(job_id: str, req: ExportRequest):
     out_filepath = None
@@ -205,7 +192,6 @@ def run_render_task(job_id: str, req: ExportRequest):
         video_clips = []
         audio_clips = []
 
-        # 1. Video Nền
         for clip_info in req.bg_clips:
             real_p = resolve_local_path(clip_info.video_path)
             if os.path.exists(real_p):
@@ -227,7 +213,6 @@ def run_render_task(job_id: str, req: ExportRequest):
                 except Exception as e:
                     print(f"Lỗi clip nền: {e}")
 
-        # 2. Ảnh Comment
         for b in req.blocks:
             img_p = resolve_local_path(b.image_path)
             if os.path.exists(img_p):
@@ -247,7 +232,6 @@ def run_render_task(job_id: str, req: ExportRequest):
                 except Exception as e:
                     print(f"Lỗi comment: {e}")
 
-        # 3. Ảnh & Video Meme
         if req.meme_images:
             for m in req.meme_images:
                 m_path = resolve_local_path(m.image_path)
@@ -275,7 +259,6 @@ def run_render_task(job_id: str, req: ExportRequest):
                     except Exception as e:
                         print(f"Lỗi meme: {e}")
 
-        # 4. Multi-track Audio
         all_audios = (req.voices or []) + (req.bgm_list or []) + (req.sound_fx_list or [])
         for a in all_audios:
             a_p = resolve_local_path(a.audio_path)
@@ -299,27 +282,21 @@ def run_render_task(job_id: str, req: ExportRequest):
             write_job_state(job_id, state)
             return
 
-        # Tính tổng thời lượng video để Watermark chạy xuyên suốt
         total_dur = max([c.end for c in video_clips] + ([a.end for a in audio_clips] if audio_clips else [15.0]))
 
-        # 5. GẮN LỚP WATERMARK NẾU NGƯỜI DÙNG BẬT
         if req.watermark and req.watermark.enabled:
             try:
-                wm_img_path = os.path.join(TEMP_DIR, f"{job_id}_wm.png")
-                wm_scale = (req.watermark.scale or 1.0) * scale_factor
-                generate_watermark_image(
-                    text=req.watermark.text or "soichibiettuot",
-                    style=req.watermark.style or "W1",
-                    output_path=wm_img_path,
-                    scale=wm_scale
-                )
-                if os.path.exists(wm_img_path):
+                wm_file = get_watermark_file_path(req.watermark.style or "W1", req.watermark.image_url)
+                if wm_file and os.path.exists(wm_file):
+                    wm_scale = (req.watermark.scale or 1.0) * scale_factor
                     real_wm_x = int((req.watermark.x or 20.0) * preview_scale * scale_factor)
                     real_wm_y = int((req.watermark.y or 25.0) * preview_scale * scale_factor)
+
                     wm_clip = (
-                        ImageClip(wm_img_path)
+                        ImageClip(wm_file)
                         .set_start(0)
                         .set_duration(total_dur)
+                        .resize(wm_scale)
                         .set_position((real_wm_x, real_wm_y))
                     )
                     if req.watermark.opacity is not None and hasattr(wm_clip, "set_opacity"):
@@ -341,7 +318,6 @@ def run_render_task(job_id: str, req: ExportRequest):
         temp_audiofile_path = os.path.join(TEMP_DIR, f"{job_id}_temp_audio.m4a")
 
         logger = CancellableRenderLogger(job_id)
-        
         cpu_cores = os.cpu_count() or 8
         final_video.write_videofile(
             out_filepath,

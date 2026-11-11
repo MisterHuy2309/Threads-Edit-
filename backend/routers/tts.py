@@ -25,6 +25,17 @@ except ImportError:
 
 router = APIRouter(prefix="/api/tts", tags=["TTS"])
 
+@router.get("/folders")
+def get_voice_folders():
+    folders = ["general"]
+    if os.path.exists(VOICES_DIR):
+        for f in os.listdir(VOICES_DIR):
+            p = os.path.join(VOICES_DIR, f)
+            if os.path.isdir(p) and f not in folders:
+                folders.append(f)
+    return folders
+
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_DIR = os.path.join(BASE_DIR, "media")
 VOICES_DIR = os.path.join(MEDIA_DIR, "voices")
@@ -245,23 +256,40 @@ def get_voice_library(topic_name: str = "general"):
     topic_dir = os.path.join(VOICES_DIR, topic_name)
     os.makedirs(topic_dir, exist_ok=True)
     items = []
-    for f in sorted(os.listdir(topic_dir), reverse=True):
-        p = os.path.join(topic_dir, f)
-        if os.path.isfile(p) and f.lower().endswith((".mp3", ".wav", ".m4a", ".aac")):
-            dur = 3.0
-            try:
-                clip = AudioFileClip(p)
-                dur = float(clip.duration)
-                clip.close()
-            except Exception:
-                pass
-            items.append({
-                "id": f,
-                "name": f,
-                "url": f"http://127.0.0.1:8000/media/voices/{topic_name}/{f}",
-                "path": p.replace("\\", "/"),
-                "duration": round(dur, 2)
-            })
+    
+    # 1. Quét trong thư mục được chọn
+    search_dirs = [topic_dir]
+    # Nếu là general mà rỗng, quét thêm trực tiếp thư mục cha VOICES_DIR và các thư mục con
+    if topic_name.lower() == "general" or not os.listdir(topic_dir):
+        search_dirs.append(VOICES_DIR)
+        for sub in os.listdir(VOICES_DIR):
+            sub_p = os.path.join(VOICES_DIR, sub)
+            if os.path.isdir(sub_p):
+                search_dirs.append(sub_p)
+
+    seen_files = set()
+    for s_dir in search_dirs:
+        if not os.path.exists(s_dir):
+            continue
+        for f in sorted(os.listdir(s_dir), reverse=True):
+            p = os.path.join(s_dir, f)
+            if os.path.isfile(p) and f.lower().endswith((".mp3", ".wav", ".m4a", ".aac")) and f not in seen_files:
+                seen_files.add(f)
+                dur = 3.0
+                try:
+                    clip = AudioFileClip(p)
+                    dur = float(clip.duration)
+                    clip.close()
+                except Exception:
+                    pass
+                rel_topic = os.path.basename(s_dir) if s_dir != VOICES_DIR else topic_name
+                items.append({
+                    "id": f,
+                    "name": f,
+                    "url": f"http://127.0.0.1:8000/media/voices/{rel_topic}/{f}",
+                    "path": p.replace("\\", "/"),
+                    "duration": round(dur, 2)
+                })
     return items
 
 # 3. UPLOAD VOICE THỦ CÔNG CÓ SẴN TỪ MÁY TÍNH

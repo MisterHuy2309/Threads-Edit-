@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { 
-  Play, Pause, RotateCcw, Film, Layers, Volume2, Trash2, ZoomIn, ZoomOut, Link, Unlink, Music, Smile, ChevronDown, ChevronUp, Scissors, Undo2, Redo2, Copy
+  Play, Pause, RotateCcw, Film, Layers, Volume2, Trash2, ZoomIn, ZoomOut, Link, Unlink, Music, Smile, ChevronDown, ChevronUp, Scissors, Undo2, Redo2, Copy, Wand2, CheckSquare, Square
 } from "lucide-react";
 import { BgClipItem, TimelineBlock, TimelineAudioItem, TimelineMemeImageItem, VoiceItem } from "@/types";
 
@@ -126,6 +126,16 @@ export const Timeline: React.FC<TimelineProps> = ({
   const resizeStartY = useRef<number>(0);
   const resizeStartHeight = useRef<number>(330);
 
+  const [rippleTracks, setRippleTracks] = useState<{ [key: string]: boolean }>({
+    overlay: true,
+    meme: false,
+    video: false,
+  });
+
+  const toggleRippleTrack = (trackName: string) => {
+    setRippleTracks((prev) => ({ ...prev, [trackName]: !prev[trackName] }));
+  };
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [copiedItems, setCopiedItems] = useState<{
     bgClips: BgClipItem[];
@@ -136,9 +146,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     memeImageList: TimelineMemeImageItem[];
   } | null>(null);
 
-  // KHỞI TẠO BỘ NHỚ LƯU TRỮ THẺ AUDIO AN TOÀN
   const audioMapRef = useRef(new Map());
-
 
   useEffect(() => {
     const single = selectedClipId || selectedBlockId || selectedVoiceId || selectedAudioId || selectedMemeId;
@@ -168,7 +176,6 @@ export const Timeline: React.FC<TimelineProps> = ({
   const bgmEnds = [...bgmList, ...soundFxList].map((m) => m.startTime + m.duration);
   const totalDuration = parentTotalDuration || Math.max(...bgEnds, ...blockEnds, ...voiceEnds, ...memeEnds, ...bgmEnds, 15);
 
-  // CHUẨN HÓA ĐƯỜNG DẪN URL AUDIO
   const getFullAudioUrl = (url: string): string => {
     if (!url) return "";
     if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("blob:") || url.startsWith("data:")) return url;
@@ -192,6 +199,52 @@ export const Timeline: React.FC<TimelineProps> = ({
       if (setSelectedMemeId) setSelectedMemeId(type === "meme" ? id : null);
     }
   };
+
+  const handleSmartAlignBlocksToVoice = useCallback(() => {
+    if (!setBlocks || blocks.length === 0 || voiceList.length === 0) return;
+    if (onRecordHistory) onRecordHistory();
+
+    const sortedVoices = [...voiceList].sort((a, b) => a.startTime - b.startTime);
+    let workingBlocks = [...blocks].sort((a, b) => a.startTime - b.startTime);
+
+    const targetBlocks = selectedIds.length > 0 
+      ? workingBlocks.filter((b) => selectedIds.includes(b.id)) 
+      : workingBlocks;
+
+    targetBlocks.forEach((block) => {
+      const probeTime = block.startTime + Math.min(0.25, block.duration / 3);
+
+      let matchedVoice = sortedVoices.find(
+        (v) => probeTime >= v.startTime && probeTime <= (v.startTime + v.duration)
+      );
+
+      if (!matchedVoice) {
+        matchedVoice = sortedVoices.find(
+          (v) => Math.abs(v.startTime - block.startTime) <= 0.8
+        );
+      }
+
+      if (matchedVoice) {
+        const oldEnd = block.startTime + block.duration;
+        const newStart = matchedVoice.startTime;
+        const newDur = matchedVoice.duration;
+        const newEnd = newStart + newDur;
+        const deltaEnd = newEnd - oldEnd;
+
+        workingBlocks = workingBlocks.map((b) => {
+          if (b.id === block.id) {
+            return { ...b, startTime: newStart, duration: newDur };
+          }
+          if (b.startTime >= oldEnd - 0.05) {
+            return { ...b, startTime: Number(Math.max(newEnd, b.startTime + deltaEnd).toFixed(2)) };
+          }
+          return b;
+        });
+      }
+    });
+
+    setBlocks(workingBlocks);
+  }, [blocks, voiceList, selectedIds, setBlocks, onRecordHistory]);
 
   const hasGroupedSelected = [
     ...bgClips, ...blocks, ...voiceList, ...bgmList, ...soundFxList, ...memeImageList
@@ -337,7 +390,8 @@ export const Timeline: React.FC<TimelineProps> = ({
     if (setVoiceList) setVoiceList((prev) => prev.flatMap((v) => splitHelper(v, "voice")));
     if (setBgmList) setBgmList((prev) => prev.flatMap((a) => splitHelper(a, "bgm")));
     if (setSoundFxList) setSoundFxList((prev) => prev.flatMap((a) => splitHelper(a, "sound_effect")));
-  }, [selectedIds, currentTime, setBgClips, setBlocks, setVoiceList, setBgmList, setSoundFxList, onRecordHistory]);
+    if (setMemeImageList) setMemeImageList((prev) => prev.flatMap((m) => splitHelper(m, "meme")));
+  }, [selectedIds, currentTime, setBgClips, setBlocks, setVoiceList, setBgmList, setSoundFxList, setMemeImageList, onRecordHistory]);
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -394,7 +448,6 @@ export const Timeline: React.FC<TimelineProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onUndo, onRedo, canUndo, canRedo, handleCopySelected, handlePasteAtPlayhead, handleSplitAtPlayhead, handleToggleGroup, handleDeleteSelected]);
 
-  // VÒNG LẶP CHẠY KIM THỜI GIAN (60FPS ĐỘC LẬP)
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
   const isScrubbingRef = useRef(isScrubbing);
@@ -433,7 +486,6 @@ export const Timeline: React.FC<TimelineProps> = ({
     };
   }, [isPlaying, totalDuration, setCurrentTime, setIsPlaying]);
 
-  // ENGINE ĐỒNG BỘ ÂM THANH MẠNH MẼ - PHÁT ĐƯỢC 100% MỌI TÌNH HUỐNG
   useEffect(() => {
     const allAudioItems = [
       ...voiceList.map((v) => ({ id: v.id, url: v.url || (v as any).path, startTime: v.startTime, duration: v.duration, trimStart: v.trimStart || 0, speed: v.speed || 1.0, vol: 1.0 })),
@@ -443,7 +495,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     allAudioItems.forEach((track) => {
       if (!track.url) return;
-      const el = audioMapRef.current ? audioMapRef.current?.get(track.id) : null;
+      const el = audioMapRef.current ? audioMapRef.current.get(track.id) : null;
       if (!el) return;
 
       const speed = track.speed || 1.0;
@@ -458,8 +510,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         const maxDur = el.duration && !isNaN(el.duration) ? el.duration : 999999;
         const safeOffset = Math.max(0, Math.min(maxDur - 0.05, targetOffset));
 
-        // Nếu audio lệch quá 0.3s thì căn chỉnh lại
-        if (Math.abs(el.currentTime - safeOffset) > 0.3) {
+        if (Math.abs(el.currentTime - safeOffset) > 0.25) {
           try { el.currentTime = safeOffset; } catch (_) {}
         }
 
@@ -473,11 +524,10 @@ export const Timeline: React.FC<TimelineProps> = ({
         if (!el.paused) {
           el.pause();
         }
-        // Khi kim dừng trên block, đặt sẵn vị trí để ấn Play là phát được ngay
         if (!isPlaying && isInside) {
           const maxDur = el.duration && !isNaN(el.duration) ? el.duration : 999999;
           const safeOffset = Math.max(0, Math.min(maxDur - 0.05, targetOffset));
-          if (Math.abs(el.currentTime - safeOffset) > 0.1) {
+          if (Math.abs(el.currentTime - safeOffset) > 0.08) {
             try { el.currentTime = safeOffset; } catch (_) {}
           }
         }
@@ -485,7 +535,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     });
 
     if (!isPlaying && audioMapRef.current) {
-      audioMapRef.current?.forEach((el) => {
+      audioMapRef.current.forEach((el: any) => {
         if (el && !el.paused) el.pause();
       });
     }
@@ -533,7 +583,6 @@ export const Timeline: React.FC<TimelineProps> = ({
     };
   }, [isResizingHeight]);
 
-  // CƠ CHẾ KÉO THU ĐẦU (RESIZE-LEFT) VÀ THU ĐUÔI (RESIZE-RIGHT)
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isScrubbing) {
@@ -551,7 +600,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         ) => {
           const maxAllowedCut = Math.max(0, initialDur - 0.2);
           const maxAllowedExtend = Math.max(0, initialTrim / speed);
-
           const clampedDelta = Math.max(-maxAllowedExtend, Math.min(maxAllowedCut, delta));
 
           const newStart = Math.max(0, Number((initialStart + clampedDelta).toFixed(2)));
@@ -561,7 +609,79 @@ export const Timeline: React.FC<TimelineProps> = ({
           return { newStart, newTrim, newDur };
         };
 
-        // 1. VIDEO NỀN
+        if (dragAction.target === "meme_img" && setMemeImageList) {
+          const shouldRipple = rippleTracks.meme;
+          const oldEnd = dragAction.initialStart + dragAction.initialDuration;
+
+          setMemeImageList((prev) => {
+            const currentItem = prev.find((m) => m.id === dragAction.id);
+            if (!currentItem) return prev;
+
+            let updatedStart = currentItem.startTime;
+            let updatedDur = currentItem.duration;
+
+            if (dragAction.type === "move") {
+              const rawMoved = Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2)));
+            updatedStart = applyMagneticSnap(rawMoved, 0.25);
+            } else if (dragAction.type === "resize-right") {
+              updatedDur = Math.max(0.3, Number((dragAction.initialDuration + deltaSeconds).toFixed(2)));
+            } else if (dragAction.type === "resize-left") {
+              const rawStart = dragAction.initialStart + deltaSeconds;
+              const diff = rawStart - dragAction.initialStart;
+              updatedStart = Math.max(0, Number(rawStart.toFixed(2)));
+              updatedDur = Math.max(0.3, Number((dragAction.initialDuration - diff).toFixed(2)));
+            }
+
+            const newEnd = updatedStart + updatedDur;
+            const deltaEnd = newEnd - oldEnd;
+
+            return prev.map((m) => {
+              if (m.id === dragAction.id) {
+                return { ...m, startTime: updatedStart, duration: updatedDur };
+              }
+              if (shouldRipple && m.startTime >= oldEnd - 0.05) {
+                return { ...m, startTime: Math.max(newEnd, Number((m.startTime + deltaEnd).toFixed(2))) };
+              }
+              return m;
+            });
+          });
+        }
+
+        if (dragAction.target === "overlay" && setBlocks) {
+          const shouldRipple = rippleTracks.overlay;
+          const oldEnd = dragAction.initialStart + dragAction.initialDuration;
+
+          setBlocks((prev) => {
+            let updatedStart = dragAction.initialStart;
+            let updatedDur = dragAction.initialDuration;
+
+            if (dragAction.type === "move") {
+              const rawMemeMoved = Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2)));
+            updatedStart = applyMagneticSnap(rawMemeMoved, 0.25);
+            } else if (dragAction.type === "resize-right") {
+              updatedDur = Math.max(0.4, Number((dragAction.initialDuration + deltaSeconds).toFixed(2)));
+            } else if (dragAction.type === "resize-left") {
+              const rawStart = dragAction.initialStart + deltaSeconds;
+              const diff = rawStart - dragAction.initialStart;
+              updatedStart = Math.max(0, Number(rawStart.toFixed(2)));
+              updatedDur = Math.max(0.4, Number((dragAction.initialDuration - diff).toFixed(2)));
+            }
+
+            const newEnd = updatedStart + updatedDur;
+            const deltaEnd = newEnd - oldEnd;
+
+            return prev.map((b) => {
+              if (b.id === dragAction.id) {
+                return { ...b, startTime: updatedStart, duration: updatedDur };
+              }
+              if (shouldRipple && b.startTime >= oldEnd - 0.05) {
+                return { ...b, startTime: Math.max(newEnd, Number((b.startTime + deltaEnd).toFixed(2))) };
+              }
+              return b;
+            });
+          });
+        }
+
         if (dragAction.target === "video" && setBgClips) {
           setBgClips((prev) =>
             prev.map((clip) => {
@@ -590,14 +710,14 @@ export const Timeline: React.FC<TimelineProps> = ({
           );
         }
 
-        // 2. VOICE TTS
         if (dragAction.target === "voice" && setVoiceList) {
+          const snapVoice = applyMagneticSnap(Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2))));
           setVoiceList((prev) =>
             prev.map((v) => {
               if (v.id !== dragAction.id) return v;
               const speed = v.speed || 1.0;
               if (dragAction.type === "move") {
-                return { ...v, startTime: Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2))) };
+                return { ...v, startTime: snapVoice };
               }
               if (dragAction.type === "resize-right") {
                 const maxAllowed = Math.max(0.3, (dragAction.maxOriginalDuration - (v.trimStart || 0)) / speed);
@@ -619,14 +739,14 @@ export const Timeline: React.FC<TimelineProps> = ({
           );
         }
 
-        // 3. NHẠC NỀN BGM
         if (dragAction.target === "bgm" && setBgmList) {
+          const snapBgm = applyMagneticSnap(Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2))));
           setBgmList((prev) =>
             prev.map((a) => {
               if (a.id !== dragAction.id) return a;
               const speed = a.speed || 1.0;
               if (dragAction.type === "move") {
-                return { ...a, startTime: Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2))) };
+                return { ...a, startTime: snapBgm };
               }
               if (dragAction.type === "resize-right") {
                 const maxAllowed = Math.max(0.3, (dragAction.maxOriginalDuration - (a.trimStart || 0)) / speed);
@@ -648,7 +768,6 @@ export const Timeline: React.FC<TimelineProps> = ({
           );
         }
 
-        // 4. MEME SOUND (SOUND FX)
         if (dragAction.target === "soundfx" && setSoundFxList) {
           setSoundFxList((prev) =>
             prev.map((a) => {
@@ -676,27 +795,6 @@ export const Timeline: React.FC<TimelineProps> = ({
             })
           );
         }
-
-        // 5. ẢNH COMMENT OVERLAY
-        if (dragAction.target === "overlay" && setBlocks) {
-          setBlocks((prev) =>
-            prev.map((b) => {
-              if (b.id !== dragAction.id) return b;
-              if (dragAction.type === "move") {
-                return { ...b, startTime: Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2))) };
-              }
-              if (dragAction.type === "resize-right") {
-                return { ...b, duration: Math.max(0.5, Number((dragAction.initialDuration + deltaSeconds).toFixed(2))) };
-              }
-              if (dragAction.type === "resize-left") {
-                const rawStart = dragAction.initialStart + deltaSeconds;
-                const diff = rawStart - dragAction.initialStart;
-                return { ...b, startTime: Number(rawStart.toFixed(2)), duration: Math.max(0.5, Number((dragAction.initialDuration - diff).toFixed(2))) };
-              }
-              return b;
-            })
-          );
-        }
       }
     };
 
@@ -716,7 +814,26 @@ export const Timeline: React.FC<TimelineProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isScrubbing, dragAction, pixelsPerSec, updateScrubTime, setBgClips, setBlocks, setVoiceList, setBgmList, setSoundFxList, onRecordHistory]);
+  }, [isScrubbing, dragAction, pixelsPerSec, updateScrubTime, rippleTracks, setBgClips, setBlocks, setVoiceList, setBgmList, setSoundFxList, setMemeImageList, onRecordHistory]);
+
+  
+  // THUẬT TOÁN TỰ CÂN BẰNG NAM CHÂM THÔNG MINH (MAGNETIC SNAPPING)
+  const applyMagneticSnap = (targetTime: number, threshold: number = 0.25) => {
+    const allKeyTimes: number[] = [0, Number(currentTime.toFixed(2))];
+    [...bgClips, ...blocks, ...voiceList, ...bgmList, ...soundFxList, ...memeImageList].forEach((item) => {
+      if (item && item.id !== dragAction?.id) {
+        allKeyTimes.push(Number(item.startTime.toFixed(2)));
+        allKeyTimes.push(Number((item.startTime + item.duration).toFixed(2)));
+      }
+    });
+
+    for (const snap of allKeyTimes) {
+      if (Math.abs(targetTime - snap) <= threshold) {
+        return snap;
+      }
+    }
+    return targetTime;
+  };
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, "0");
@@ -740,7 +857,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         <div className="w-10 h-0.5 bg-slate-600 group-hover:bg-cyan-200 rounded-full transition-colors" />
       </div>
 
-      {/* TOOLBAR */}
       <div className="h-10 px-4 bg-[#18191c] border-b border-slate-800 flex items-center justify-between z-30 shrink-0">
         <div className="flex items-center gap-2">
           <button
@@ -764,6 +880,18 @@ export const Timeline: React.FC<TimelineProps> = ({
 
           <div className="h-4 w-[1px] bg-slate-800 mx-0.5" />
 
+          <button
+            onClick={handleSmartAlignBlocksToVoice}
+            disabled={blocks.length === 0 || voiceList.length === 0}
+            title="Tự động căn ảnh khớp với ghi âm bên dưới và đẩy dồn các block sau"
+            className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold rounded text-xs shadow-md transition active:scale-95 disabled:opacity-40"
+          >
+            <Wand2 size={13} />
+            <span>Cân Ảnh Theo Voice</span>
+          </button>
+
+          <div className="h-4 w-[1px] bg-slate-800 mx-0.5" />
+
           <button onClick={onUndo} disabled={!canUndo} title="Hoàn tác (Ctrl + Z)" className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded text-slate-300">
             <Undo2 size={13} />
           </button>
@@ -780,7 +908,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-cyan-900/60 border border-slate-700 text-slate-300 rounded text-xs transition disabled:opacity-40"
           >
             <Copy size={13} />
-            <span>Copy (Ctrl+C)</span>
+            <span>Copy</span>
           </button>
 
           <button
@@ -789,7 +917,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             title="Dán block tại kim hiện tại (Ctrl + V)"
             className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-cyan-900/60 border border-slate-700 text-slate-300 rounded text-xs transition disabled:opacity-40"
           >
-            <span>Paste (Ctrl+V)</span>
+            <span>Paste</span>
           </button>
 
           <button
@@ -798,7 +926,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-cyan-900/60 border border-slate-700 text-slate-300 rounded text-xs transition"
           >
             <Scissors size={13} />
-            <span>Tách Clip (Ctrl+B)</span>
+            <span>Tách (Ctrl+B)</span>
           </button>
 
           <button
@@ -825,7 +953,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             }`}
           >
             {hasGroupedSelected ? <Unlink size={13} /> : <Link size={13} />}
-            <span>{hasGroupedSelected ? "Rã Nhóm (Ctrl+G)" : "Khóa Nhóm (Ctrl+G)"}</span>
+            <span>{hasGroupedSelected ? "Rã Nhóm" : "Khóa Nhóm"}</span>
           </button>
 
           <div className="font-mono text-xs flex items-center gap-1 ml-1.5">
@@ -842,31 +970,65 @@ export const Timeline: React.FC<TimelineProps> = ({
             <button onClick={() => setPixelsPerSec((p) => Math.min(120, p + 10))} className="p-1 hover:bg-slate-800 text-slate-400 rounded"><ZoomIn size={13} /></button>
           </div>
 
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs text-slate-300 transition"
-          >
-            {isCollapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            <span>{isCollapsed ? "Hiện Timeline" : "Ẩn Timeline"}</span>
-          </button>
+          
         </div>
       </div>
 
-      {/* TRACKS CONTAINER */}
       {!isCollapsed && (
         <div className="flex flex-1 overflow-hidden transition-all duration-75 relative">
-          <div className="w-28 bg-[#151619] border-r border-slate-800 flex flex-col flex-shrink-0 z-10 text-[11px] font-medium text-slate-400 select-none">
+          <div className="w-32 bg-[#151619] border-r border-slate-800 flex flex-col flex-shrink-0 z-10 text-[11px] font-medium text-slate-400 select-none">
             <div className="h-6 flex items-center px-3 border-b border-slate-800/80 text-slate-500 font-mono text-[10px]">Thước Đo</div>
-            <div className="h-12 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white"><Smile size={13} className="text-pink-400 shrink-0" /><span className="truncate">Ảnh Meme</span></div>
-            <div className="h-12 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white"><Layers size={13} className="text-amber-400 shrink-0" /><span className="truncate">Ảnh Comment</span></div>
-            <div className="h-12 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white"><Film size={13} className="text-cyan-400 shrink-0" /><span className="truncate">Video Nền</span></div>
-            <div className="h-10 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white"><Volume2 size={13} className="text-emerald-400 shrink-0" /><span className="truncate">Voice TTS</span></div>
-            <div className="h-10 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white"><Music size={13} className="text-indigo-400 shrink-0" /><span className="truncate">Nhạc (BGM)</span></div>
-            <div className="h-10 flex items-center gap-2 px-3 hover:text-white"><Volume2 size={13} className="text-teal-400 shrink-0" /><span className="truncate">Meme Sound</span></div>
+            
+            <div className="h-12 border-b border-slate-800/60 flex items-center justify-between px-2.5 hover:text-white">
+              <div className="flex items-center gap-1.5 truncate">
+                <Smile size={13} className="text-pink-400 shrink-0" />
+                <span className="truncate">Ảnh Meme</span>
+              </div>
+              <button
+                onClick={() => toggleRippleTrack("meme")}
+                title={rippleTracks.meme ? "Dồn khối: Bật" : "Dồn khối: Tắt"}
+                className={`p-1 rounded transition ${rippleTracks.meme ? "text-pink-400 bg-pink-950/60" : "text-slate-600 hover:text-slate-400"}`}
+              >
+                {rippleTracks.meme ? <CheckSquare size={13} /> : <Square size={13} />}
+              </button>
+            </div>
+
+            <div className="h-12 border-b border-slate-800/60 flex items-center justify-between px-2.5 hover:text-white">
+              <div className="flex items-center gap-1.5 truncate">
+                <Layers size={13} className="text-amber-400 shrink-0" />
+                <span className="truncate">Ảnh Comment</span>
+              </div>
+              <button
+                onClick={() => toggleRippleTrack("overlay")}
+                title={rippleTracks.overlay ? "Tự động dồn khối khi kéo: Bật" : "Tự động dồn khối: Tắt"}
+                className={`p-1 rounded transition ${rippleTracks.overlay ? "text-amber-400 bg-amber-950/60" : "text-slate-600 hover:text-slate-400"}`}
+              >
+                {rippleTracks.overlay ? <CheckSquare size={13} /> : <Square size={13} />}
+              </button>
+            </div>
+
+            <div className="h-12 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white">
+              <Film size={13} className="text-cyan-400 shrink-0" />
+              <span className="truncate">Video Nền</span>
+            </div>
+
+            <div className="h-10 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white">
+              <Volume2 size={13} className="text-emerald-400 shrink-0" />
+              <span className="truncate">Voice TTS</span>
+            </div>
+
+            <div className="h-10 border-b border-slate-800/60 flex items-center gap-2 px-3 hover:text-white">
+              <Music size={13} className="text-indigo-400 shrink-0" />
+              <span className="truncate">Nhạc (BGM)</span>
+            </div>
+
+            <div className="h-10 flex items-center gap-2 px-3 hover:text-white">
+              <Volume2 size={13} className="text-teal-400 shrink-0" />
+              <span className="truncate">Meme Sound</span>
+            </div>
           </div>
 
           <div ref={timelineRef} onMouseDown={handleMouseDownPlayhead} className="flex-1 relative overflow-x-auto overflow-y-auto bg-[#0d0e11] cursor-pointer">
-            {/* KIM PLAYHEAD */}
             <div
               style={{
                 left: `${currentTime * pixelsPerSec}px`,
@@ -878,7 +1040,6 @@ export const Timeline: React.FC<TimelineProps> = ({
               <div className="w-[1.5px] flex-1 min-h-[480px] bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
             </div>
 
-            {/* RULER */}
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-6 border-b border-slate-800/80 relative flex items-end text-[9px] font-mono text-slate-500 select-none bg-[#101216]">
               {Array.from({ length: Math.ceil(totalDuration) + 2 }).map((_, i) => (
                 <div key={i} style={{ left: `${i * pixelsPerSec}px` }} className="absolute bottom-0 flex flex-col items-center pointer-events-none">
@@ -888,33 +1049,66 @@ export const Timeline: React.FC<TimelineProps> = ({
               ))}
             </div>
 
-            {/* TRACK 0: ẢNH MEME */}
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-12 border-b border-slate-800/60 relative flex items-center px-1 bg-pink-950/10">
               {memeImageList.map((meme) => {
                 const isSelected = selectedIds.includes(meme.id);
+                const isGrouped = !!meme.groupId;
                 const isVid = meme.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(meme.url);
                 return (
                   <div
                     key={meme.id}
                     onClick={(e) => handleSelectBlock(meme.id, e, "meme")}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      handleSelectBlock(meme.id, e, "meme");
+                      setDragAction({
+                        target: "meme_img", type: "move", id: meme.id, startX: e.clientX,
+                        initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: 0,
+                        maxOriginalDuration: 999999
+                      });
+                    }}
                     style={{ left: `${meme.startTime * pixelsPerSec}px`, width: `${meme.duration * pixelsPerSec}px` }}
-                    className={`absolute h-9 rounded-md p-1 flex items-center shadow border transition cursor-pointer ${
-                      isSelected ? "bg-pink-600/70 border-white ring-2 ring-white z-20" : "bg-pink-600/30 border-pink-400"
+                    className={`absolute h-9 rounded-md p-1 flex items-center shadow border transition cursor-grab active:cursor-grabbing group ${
+                      isSelected ? "bg-pink-600/70 border-white ring-2 ring-white z-20" : isGrouped ? "bg-pink-600/40 border-pink-300 ring-1 ring-pink-400/60 z-15" : "bg-pink-600/30 border-pink-400 hover:border-pink-300 z-10"
                     }`}
                   >
+                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-left", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: 0, maxOriginalDuration: 999999 }); }} className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-l-md transition-all opacity-0 group-hover:opacity-100" />
                     {isVid ? (
                       <video src={meme.url} className="h-full w-7 object-cover rounded pointer-events-none mr-1" />
                     ) : (
                       <img src={meme.url} alt="meme" className="h-full w-7 object-contain rounded pointer-events-none mr-1" />
                     )}
-                    <span className="text-[10px] text-pink-200 truncate">{meme.duration}s</span>
+                    <span className="text-[10px] text-pink-200 truncate font-semibold pointer-events-none">{meme.duration}s {isGrouped && "🔗"}</span>
+                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-right", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: 0, maxOriginalDuration: 999999 }); }} className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-r-md transition-all opacity-0 group-hover:opacity-100" />
                   </div>
                 );
               })}
             </div>
 
-            {/* TRACK 1: ẢNH COMMENT */}
-            <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-12 border-b border-slate-800/60 relative flex items-center px-1 bg-slate-950/20">
+            <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-12 border-b border-slate-800/60 relative flex items-center px-1 bg-slate-950/20" onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+            onDrop={(e) => {
+              e.preventDefault();
+              try {
+                const data = JSON.parse(e.dataTransfer.getData("application/json") || "{}");
+                if (data.imageUrl || data.image_url || data.path) {
+                  if (onRecordHistory) onRecordHistory();
+                  const targetUrl = data.imageUrl || data.image_url || data.path;
+                  const newBlock = {
+                    id: "block_" + Date.now(),
+                    image_url: targetUrl,
+                    image_path: data.image_path || targetUrl,
+                    startTime: Number(currentTime.toFixed(2)),
+                    duration: data.duration || 3.0,
+                    img_x: 140,
+                    img_y: 450,
+                    img_width: 800,
+                    borderRadius: 12,
+                    opacity: 1.0,
+                  };
+                  if (setBlocks) setBlocks((prev) => [...prev, newBlock]);
+                }
+              } catch (_) {}
+            }}>
               {blocks.map((b) => {
                 const isSelected = selectedIds.includes(b.id);
                 const isGrouped = !!b.groupId;
@@ -947,7 +1141,6 @@ export const Timeline: React.FC<TimelineProps> = ({
               })}
             </div>
 
-            {/* TRACK 2: VIDEO NỀN */}
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-12 border-b border-slate-800/60 relative flex items-center px-1 hover:bg-teal-950/20 transition-colors">
               {bgClips.map((clip) => {
                 const isSelected = selectedIds.includes(clip.id);
@@ -991,7 +1184,6 @@ export const Timeline: React.FC<TimelineProps> = ({
               })}
             </div>
 
-            {/* TRACK 3: VOICE TTS (CẮT ĐẦU VÀ PHÁT ÂM THANH CHUẨN XÁC) */}
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-10 border-b border-slate-800/60 relative flex items-center px-1">
               {voiceList.map((v) => {
                 const isSelected = selectedIds.includes(v.id);
@@ -1015,46 +1207,31 @@ export const Timeline: React.FC<TimelineProps> = ({
                       isSelected ? "bg-emerald-950/95 border-white ring-2 ring-white z-20 text-white" : isGrouped ? "bg-emerald-950/80 border-emerald-300 ring-1 ring-emerald-400/60 z-15 text-emerald-200" : "bg-emerald-950/70 border-emerald-500 text-emerald-300 z-10"
                     }`}
                   >
-                    {/* Handle Kéo mép trái: Cắt phần đầu clip */}
                     <div 
                       onMouseDown={(e) => { 
                         e.stopPropagation(); 
                         setDragAction({ 
-                          target: "voice", 
-                          type: "resize-left", 
-                          id: v.id, 
-                          startX: e.clientX, 
-                          initialStart: v.startTime, 
-                          initialDuration: v.duration, 
-                          initialTrimStart: v.trimStart || 0, 
-                          maxOriginalDuration: v.maxDuration,
-                          speed: v.speed || 1.0 
+                          target: "voice", type: "resize-left", id: v.id, startX: e.clientX, 
+                          initialStart: v.startTime, initialDuration: v.duration, initialTrimStart: v.trimStart || 0, 
+                          maxOriginalDuration: v.maxDuration, speed: v.speed || 1.0 
                         }); 
                       }} 
                       className="absolute left-0 top-0 bottom-0 w-3 bg-emerald-400/90 hover:bg-emerald-300 cursor-ew-resize z-20 opacity-0 group-hover:opacity-100 transition-opacity" 
                     />
                     
-                    {/* Sóng âm cuộn vào trong theo trimStart */}
                     <div style={{ position: "absolute", left: `-${(v.trimStart || 0) * pixelsPerSec}px`, width: `${(v.maxDuration || v.duration) * pixelsPerSec}px`, height: "100%" }} className="pointer-events-none flex items-center">
                       <AudioWaveformSvg id={v.id} width={(v.maxDuration || v.duration) * pixelsPerSec} color="#34d399" seedStr={v.name} />
                     </div>
 
                     <span className="truncate z-10 font-medium drop-shadow-sm px-1 pointer-events-none">{v.name} ({v.duration}s) {isGrouped && "🔗"}</span>
                     
-                    {/* Handle Kéo mép phải: Cắt phần đuôi clip */}
                     <div 
                       onMouseDown={(e) => { 
                         e.stopPropagation(); 
                         setDragAction({ 
-                          target: "voice", 
-                          type: "resize-right", 
-                          id: v.id, 
-                          startX: e.clientX, 
-                          initialStart: v.startTime, 
-                          initialDuration: v.duration, 
-                          initialTrimStart: v.trimStart || 0, 
-                          maxOriginalDuration: v.maxDuration,
-                          speed: v.speed || 1.0 
+                          target: "voice", type: "resize-right", id: v.id, startX: e.clientX, 
+                          initialStart: v.startTime, initialDuration: v.duration, initialTrimStart: v.trimStart || 0, 
+                          maxOriginalDuration: v.maxDuration, speed: v.speed || 1.0 
                         }); 
                       }} 
                       className="absolute right-0 top-0 bottom-0 w-3 bg-emerald-400/90 hover:bg-emerald-300 cursor-ew-resize z-20 opacity-0 group-hover:opacity-100 transition-opacity" 
@@ -1064,7 +1241,6 @@ export const Timeline: React.FC<TimelineProps> = ({
               })}
             </div>
 
-            {/* TRACK 4: NHẠC NỀN BGM (CẮT ĐẦU VÀ PHÁT ÂM THANH CHUẨN XÁC) */}
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-10 border-b border-slate-800/60 relative flex items-center px-1 bg-indigo-950/10">
               {bgmList.map((bgm) => {
                 const isSelected = selectedIds.includes(bgm.id);
@@ -1089,20 +1265,13 @@ export const Timeline: React.FC<TimelineProps> = ({
                       isSelected ? "bg-indigo-900 border-white ring-2 ring-white z-20 text-white" : isGrouped ? "bg-indigo-950 border-indigo-300 ring-1 ring-indigo-400 z-15" : "bg-indigo-950/80 border-indigo-500 text-indigo-300 z-10"
                     }`}
                   >
-                    {/* Handle Kéo mép trái */}
                     <div 
                       onMouseDown={(e) => { 
                         e.stopPropagation(); 
                         setDragAction({ 
-                          target: "bgm", 
-                          type: "resize-left", 
-                          id: bgm.id, 
-                          startX: e.clientX, 
-                          initialStart: bgm.startTime, 
-                          initialDuration: bgm.duration, 
-                          initialTrimStart: bgm.trimStart || 0, 
-                          maxOriginalDuration: bgm.maxDuration,
-                          speed: bgm.speed || 1.0 
+                          target: "bgm", type: "resize-left", id: bgm.id, startX: e.clientX, 
+                          initialStart: bgm.startTime, initialDuration: bgm.duration, initialTrimStart: bgm.trimStart || 0, 
+                          maxOriginalDuration: bgm.maxDuration, speed: bgm.speed || 1.0 
                         }); 
                       }} 
                       className="absolute left-0 top-0 bottom-0 w-3 bg-indigo-400/90 hover:bg-indigo-300 cursor-ew-resize z-20 opacity-0 group-hover:opacity-100 rounded-l transition-opacity" 
@@ -1114,20 +1283,13 @@ export const Timeline: React.FC<TimelineProps> = ({
 
                     <span className="truncate mr-1 font-medium z-10 drop-shadow-sm px-1 pointer-events-none">🎵 {bgm.name} ({bgm.duration}s | {vol}%) {isGrouped && "🔗"}</span>
                     
-                    {/* Handle Kéo mép phải */}
                     <div 
                       onMouseDown={(e) => { 
                         e.stopPropagation(); 
                         setDragAction({ 
-                          target: "bgm", 
-                          type: "resize-right", 
-                          id: bgm.id, 
-                          startX: e.clientX, 
-                          initialStart: bgm.startTime, 
-                          initialDuration: bgm.duration, 
-                          initialTrimStart: bgm.trimStart || 0, 
-                          maxOriginalDuration: bgm.maxDuration,
-                          speed: bgm.speed || 1.0 
+                          target: "bgm", type: "resize-right", id: bgm.id, startX: e.clientX, 
+                          initialStart: bgm.startTime, initialDuration: bgm.duration, initialTrimStart: bgm.trimStart || 0, 
+                          maxOriginalDuration: bgm.maxDuration, speed: bgm.speed || 1.0 
                         }); 
                       }} 
                       className="absolute right-0 top-0 bottom-0 w-3 bg-indigo-400/90 hover:bg-indigo-300 cursor-ew-resize z-20 opacity-0 group-hover:opacity-100 rounded-r transition-opacity" 
@@ -1137,7 +1299,6 @@ export const Timeline: React.FC<TimelineProps> = ({
               })}
             </div>
 
-            {/* TRACK 5: MEME SOUND */}
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-10 relative flex items-center px-1 bg-teal-950/10">
               {soundFxList.map((fx) => {
                 const isSelected = selectedIds.includes(fx.id);
@@ -1176,7 +1337,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         </div>
       )}
 
-      {/* AUDIO ELEMENTS ENGINE - QUẢN LÝ REF VÀ TẢI ÂM THANH TRỰC TIẾP */}
       {voiceList.map((voice) => (
         <audio
           key={"voice_elem_" + voice.id}
@@ -1215,4 +1375,3 @@ export const Timeline: React.FC<TimelineProps> = ({
 };
 
 export default Timeline;
-

@@ -1,25 +1,55 @@
-﻿import React from "react";
-import { Play, RefreshCw, ChevronDown, ChevronUp, Image as ImageIcon, ShieldCheck } from "lucide-react";
+import React from "react";
+import { Film, Image as ImageIcon, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
 
-interface HeaderProps {
-  showTimeline: boolean;
-  setShowTimeline: React.Dispatch<React.SetStateAction<boolean>>;
-  handleRenderTimeline: () => void;
-  onOpenCoverMaker: () => void;
-  onOpenWatermarkStudio: () => void;
-  isRendering: boolean;
-  hasBlocks: boolean;
+export interface HeaderProps {
+  currentView?: "editor" | "cover_maker" | "watermark_studio";
+  setCurrentView?: (view: "editor" | "cover_maker" | "watermark_studio") => void;
+  showExportModal?: boolean;
+  setShowExportModal?: (show: boolean) => void;
+  isRendering?: boolean;
+  renderProgress?: number;
+  showTimeline?: boolean;
+  setShowTimeline?: React.Dispatch<React.SetStateAction<boolean>> | ((fn: (prev: boolean) => boolean) => void);
+  onOpenCoverMaker?: () => void;
+  onOpenWatermarkStudio?: () => void;
+  hasBlocks?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  showTimeline,
+  currentView,
+  setCurrentView,
+  showExportModal,
+  setShowExportModal,
+  isRendering,
+  renderProgress = 0,
+  showTimeline = true,
   setShowTimeline,
-  handleRenderTimeline,
   onOpenCoverMaker,
   onOpenWatermarkStudio,
-  isRendering,
   hasBlocks,
 }) => {
+  const handleOpenCover = () => {
+    if (typeof setCurrentView === "function") {
+      setCurrentView("cover_maker");
+    } else if (typeof onOpenCoverMaker === "function") {
+      onOpenCoverMaker();
+    }
+  };
+
+  const handleOpenWatermark = () => {
+    if (typeof setCurrentView === "function") {
+      setCurrentView("watermark_studio");
+    } else if (typeof onOpenWatermarkStudio === "function") {
+      onOpenWatermarkStudio();
+    }
+  };
+
+  const handleToggleTimeline = () => {
+    if (typeof setShowTimeline === "function") {
+      setShowTimeline((prev: boolean) => !prev);
+    }
+  };
+
   return (
     <header className="h-12 border-b border-slate-800/80 px-5 flex items-center justify-between bg-slate-900/80 shrink-0 select-none">
       <div className="flex items-center gap-3">
@@ -29,62 +59,54 @@ export const Header: React.FC<HeaderProps> = ({
         </h1>
       </div>
 
-      <div className="flex items-center gap-2.5">
-        {/* NÚT TẠO ẢNH BÌA */}
+      <div className="flex items-center gap-3">
+        {/* NÚT TẠO ẢNH BÌA 9:16 */}
         <button
-          onClick={onOpenCoverMaker}
-          className="px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition border bg-amber-500/10 border-amber-500/40 text-amber-300 hover:bg-amber-500/20 active:scale-95 shadow-sm"
+          onClick={handleOpenCover}
+          className="px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 border border-amber-500/40 bg-amber-950/30 text-amber-300 hover:bg-amber-900/50 hover:border-amber-400 transition active:scale-95 shadow-sm"
         >
           <ImageIcon size={14} className="text-amber-400" />
           <span>Tạo Ảnh Bìa 9:16</span>
         </button>
 
-        {/* NÚT TẠO WATERMARK (ĐẶT KẾ BÊN MENU ẢNH BÌA) */}
+        {/* NÚT TẠO WATERMARK */}
         <button
-          onClick={onOpenWatermarkStudio}
-          className="px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition border bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20 active:scale-95 shadow-sm"
+          onClick={handleOpenWatermark}
+          className="px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 border border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/50 hover:border-emerald-400 transition active:scale-95 shadow-sm"
         >
           <ShieldCheck size={14} className="text-emerald-400" />
           <span>Tạo Watermark</span>
         </button>
 
-        <div className="h-4 w-[1px] bg-slate-800 mx-0.5" />
-
+        {/* NÚT ẨN/HIỆN TIMELINE */}
         <button
-          onClick={() => setShowTimeline((prev) => !prev)}
+          onClick={handleToggleTimeline}
           className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition border ${
             showTimeline
               ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-              : "bg-indigo-600/30 border-indigo-500/80 text-indigo-200 hover:bg-indigo-600/40"
+              : "bg-cyan-950/50 border-cyan-500/50 text-cyan-300 hover:bg-cyan-900/50"
           }`}
         >
-          {showTimeline ? (
-            <>
-              <ChevronDown size={14} /> Ẩn Timeline
-            </>
-          ) : (
-            <>
-              <ChevronUp size={14} /> Hiện Timeline
-            </>
-          )}
+          {showTimeline ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          <span>{showTimeline ? "Ẩn Timeline" : "Hiện Timeline"}</span>
         </button>
 
+        {/* NÚT XUẤT VIDEO */}
         <button
-          onClick={handleRenderTimeline}
-          disabled={isRendering || !hasBlocks}
-          className="px-4 py-1.5 bg-gradient-to-r from-rose-600 to-orange-500 hover:opacity-90 disabled:opacity-40 text-white rounded-md text-xs font-bold flex items-center gap-2 shadow-lg shadow-rose-950/40 transition active:scale-95"
+          onClick={() => {
+            if (typeof setShowExportModal === "function") {
+              setShowExportModal(true);
+            }
+          }}
+          disabled={isRendering}
+          className="px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-950 transition active:scale-95 disabled:opacity-50"
         >
-          {isRendering ? (
-            <>
-              <RefreshCw className="animate-spin" size={13} /> Đang xuất Video...
-            </>
-          ) : (
-            <>
-              <Play size={13} /> Xuất Video 9:16
-            </>
-          )}
+          <Film size={14} />
+          <span>{isRendering ? `Đang Render ${renderProgress}%...` : "Xuất Video 9:16"}</span>
         </button>
       </div>
     </header>
   );
 };
+
+export default Header;

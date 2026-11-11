@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef , useCallback } from "react";
 import { Music, Volume2, Smile, Upload, Play, Pause, Plus, Video } from "lucide-react";
 import { MediaAssetItem } from "@/types";
 
@@ -25,16 +25,26 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const loadAssets = () => {
-    fetch(`${API_BASE}/api/assets/list`)
-      .then((r) => r.json())
-      .then((d) => setAssets(d))
-      .catch(() => {});
-  };
+    const loadAssets = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/assets/list`);
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      // Xử lý linh hoạt mọi kiểu trả về từ FastAPI
+      if (Array.isArray(data)) {
+        setAssets(data);
+      } else if (data && typeof data === "object") {
+        setAssets(data);
+      }
+    } catch (err) {
+      console.warn("Lỗi tải danh sách Assets:", err);
+    }
+  }, []);
 
   useEffect(() => {
     loadAssets();
-  }, []);
+  }, [loadAssets]);
 
   const handleTogglePlay = (url: string) => {
     if (playingUrl === url) {
