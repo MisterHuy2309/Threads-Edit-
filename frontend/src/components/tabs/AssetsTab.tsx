@@ -1,20 +1,24 @@
-﻿"use client";
+"use client";
 
-import React, { useState, useEffect, useRef , useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Music, Volume2, Smile, Upload, Play, Pause, Plus, Video } from "lucide-react";
 import { MediaAssetItem } from "@/types";
 
 interface AssetsTabProps {
   onAddAudioToTimeline?: (item: MediaAssetItem, type: "bgm" | "sound_effect") => void;
   onAddMemeImageToTimeline?: (item: MediaAssetItem) => void;
+  onAddAudio?: (item: MediaAssetItem, type: "bgm" | "sound_effect") => void;
+  onAddMeme?: (item: MediaAssetItem) => void;
 }
 
 export const AssetsTab: React.FC<AssetsTabProps> = ({
   onAddAudioToTimeline,
   onAddMemeImageToTimeline,
+  onAddAudio,
+  onAddMeme,
 }) => {
   const API_BASE = "http://localhost:8000";
-  const [subTab, setSubTab] = useState<"bgm" | "meme_audio" | "meme_img">("meme_img");
+  const [subTab, setSubTab] = useState<"bgm" | "meme_audio" | "meme_img">("bgm");
   const [assets, setAssets] = useState<{
     bgm: MediaAssetItem[];
     meme_audio: MediaAssetItem[];
@@ -25,26 +29,16 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    const loadAssets = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/assets/list`);
-      if (!res.ok) return;
-      const data = await res.json();
-      
-      // Xử lý linh hoạt mọi kiểu trả về từ FastAPI
-      if (Array.isArray(data)) {
-        setAssets(data);
-      } else if (data && typeof data === "object") {
-        setAssets(data);
-      }
-    } catch (err) {
-      console.warn("Lỗi tải danh sách Assets:", err);
-    }
-  }, []);
+  const loadAssets = () => {
+    fetch(`${API_BASE}/api/assets/list`)
+      .then((r) => r.json())
+      .then((d) => setAssets(d))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     loadAssets();
-  }, [loadAssets]);
+  }, []);
 
   const handleTogglePlay = (url: string) => {
     if (playingUrl === url) {
@@ -71,6 +65,16 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
     });
     loadAssets();
     e.target.value = "";
+  };
+
+  const triggerAddAudio = (item: MediaAssetItem, type: "bgm" | "sound_effect") => {
+    const fn = onAddAudioToTimeline || onAddAudio;
+    if (typeof fn === "function") fn(item, type);
+  };
+
+  const triggerAddMeme = (item: MediaAssetItem) => {
+    const fn = onAddMemeImageToTimeline || onAddMeme;
+    if (typeof fn === "function") fn(item);
   };
 
   return (
@@ -131,15 +135,17 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
               </div>
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => handleTogglePlay(item.url)}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleTogglePlay(item.url); }}
                   className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-full transition"
                 >
                   {playingUrl === item.url ? <Pause size={12} /> : <Play size={12} />}
                 </button>
                 <button
-                  onClick={() => onAddAudioToTimeline && onAddAudioToTimeline(item, "bgm")}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); triggerAddAudio(item, "bgm"); }}
                   title="Thêm vào track BGM"
-                  className="p-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition"
+                  className="p-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition active:scale-95 cursor-pointer"
                 >
                   <Plus size={12} />
                 </button>
@@ -159,15 +165,17 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
               </div>
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => handleTogglePlay(item.url)}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleTogglePlay(item.url); }}
                   className="p-1.5 bg-slate-800 hover:bg-emerald-600 text-slate-300 hover:text-white rounded-full transition"
                 >
                   {playingUrl === item.url ? <Pause size={12} /> : <Play size={12} />}
                 </button>
                 <button
-                  onClick={() => onAddAudioToTimeline && onAddAudioToTimeline(item, "sound_effect")}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); triggerAddAudio(item, "sound_effect"); }}
                   title="Thêm vào track Meme Sound"
-                  className="p-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition"
+                  className="p-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition active:scale-95 cursor-pointer"
                 >
                   <Plus size={12} />
                 </button>
@@ -182,7 +190,8 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
               return (
                 <div
                   key={idx}
-                  className="group relative bg-slate-900 border border-slate-800 hover:border-amber-400 rounded-lg p-1 transition overflow-hidden"
+                  onClick={() => triggerAddMeme(img)}
+                  className="group relative bg-slate-900 border border-slate-800 hover:border-amber-400 rounded-lg p-1 transition overflow-hidden cursor-pointer"
                 >
                   {isVid ? (
                     <div className="relative w-full h-20 bg-black rounded overflow-hidden flex items-center justify-center">
@@ -197,9 +206,10 @@ export const AssetsTab: React.FC<AssetsTabProps> = ({
                   <span className="text-[10px] text-slate-400 truncate block mt-1">{img.name}</span>
                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                     <button
-                      onClick={() => onAddMemeImageToTimeline && onAddMemeImageToTimeline(img)}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); triggerAddMeme(img); }}
                       title="Gắn vào Timeline"
-                      className="p-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-full font-bold shadow"
+                      className="p-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-full font-bold shadow active:scale-95"
                     >
                       <Plus size={13} />
                     </button>

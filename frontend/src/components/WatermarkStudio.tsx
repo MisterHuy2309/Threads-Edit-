@@ -57,53 +57,175 @@ export const WatermarkStudio: React.FC<WatermarkStudioProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#0d0e12] text-slate-100 select-none overflow-hidden">
-      {/* HEADER WATERMARK STUDIO */}
-      <div className="h-14 border-b border-slate-800 bg-[#16181d] px-6 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition"
-          >
-            ← Quay Lại Editor
-          </button>
-          <span className="text-sm font-bold text-slate-100">Watermark Studio & Presets</span>
-        </div>
-      </div>
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 font-sans select-none overflow-hidden">
+      <header className="h-12 border-b border-slate-800 px-5 flex items-center justify-between bg-slate-900/90 shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 text-xs font-semibold text-slate-300 hover:text-white px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition"
+        >
+          <ArrowLeft size={14} /> Quay lại Video Editor
+        </button>
 
-      {/* WORKSPACE CHÍNH */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* PANEL ĐIỀU CHỈNH BÊN TRÁI */}
-        <div className="w-[360px] border-r border-slate-800 bg-[#121316] p-5 flex flex-col gap-4 overflow-y-auto">
+        <span className="text-xs font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent flex items-center gap-1.5">
+          <ShieldCheck size={16} className="text-emerald-400" /> STUDIO THIẾT KẾ WATERMARK KÊNH
+        </span>
+
+        <button
+          onClick={handleDownloadWatermark}
+          disabled={isExporting}
+          className="flex items-center gap-2 text-xs font-bold px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 rounded-lg shadow-lg active:scale-95 transition"
+        >
+          <Download size={14} /> {isExporting ? "Đang xuất PNG..." : "Tải Watermark PNG Trong Suốt"}
+        </button>
+      </header>
+
+      <div className="flex-1 flex overflow-hidden">
+        <div className="w-[380px] border-r border-slate-800 bg-[#121316] flex flex-col p-4 space-y-4 overflow-y-auto shrink-0 text-xs">
+          <div>
+            <label className="text-slate-400 font-bold block mb-2">1. Chọn Kiểu Watermark:</label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: "W1", name: "Mini Badge", desc: "Mẫu W1" },
+                { id: "W2", name: "Minimal Text", desc: "Mẫu W2 (@)" },
+                { id: "W3", name: "Ribbon Badge", desc: "Mẫu W3" },
+              ].map((w) => (
+                <button
+                  key={w.id}
+                  onClick={() => {
+                    setSelectedStyle(w.id as any);
+                    if (w.id === "W1" && text === "Sợi Chỉ Biết Tuốt") setText("soichibiettuot");
+                    if (w.id !== "W1" && text === "soichibiettuot") setText("Sợi Chỉ Biết Tuốt");
+                  }}
+                  className={`p-2.5 rounded-xl border text-center transition ${
+                    selectedStyle === w.id
+                      ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 font-bold shadow-lg shadow-emerald-950/40"
+                      : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span className="block">{w.name}</span>
+                  <span className="block text-[10px] opacity-75">{w.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="border-t border-slate-800/80 pt-3 space-y-3">
             <div>
-              <label className="text-slate-400 block mb-1 text-xs font-semibold">Nội dung text watermark:</label>
+              <label className="text-slate-400 block mb-1">Nội dung text watermark:</label>
               <input
                 type="text"
-                value={typeof watermarkText !== "undefined" ? watermarkText : "Sợi Chỉ Biết Tuốt"}
-                onChange={(e) => {
-                  if (typeof setWatermarkText === "function") setWatermarkText(e.target.value);
-                }}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-medium"
-                placeholder="Nhập tên kênh hoặc text..."
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white outline-none focus:border-emerald-400 font-bold"
               />
             </div>
 
-            <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-xl space-y-1.5">
-              <span className="text-xs font-bold text-emerald-400 block">3 Presets Watermark Chuẩn:</span>
-              <p className="text-[11px] text-slate-400">
-                • <b>W1</b>: Signature Pill Cam bo tròn kèm avatar chú khủng long.<br />
-                • <b>W2</b>: Dark Glassmorphism viền cyan hiện đại.<br />
-                • <b>W3</b>: Minimal Floating Logo không khung nền.
-              </p>
+            <div className="space-y-1">
+              <div className="flex justify-between text-slate-400">
+                <span>Độ mờ (Opacity):</span>
+                <span className="text-emerald-400 font-mono font-bold">{Math.round(opacity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0.1}
+                max={1.0}
+                step={0.05}
+                value={opacity}
+                onChange={(e) => setOpacity(Number(e.target.value))}
+                className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between text-slate-400">
+                <span>Kích thước (Scale):</span>
+                <span className="text-emerald-400 font-mono font-bold">{scale}x</span>
+              </div>
+              <input
+                type="range"
+                min={0.6}
+                max={2.0}
+                step={0.1}
+                value={scale}
+                onChange={(e) => setScale(Number(e.target.value))}
+                className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="pt-2">
+              <label className="text-slate-400 block mb-1">Nền xem thử:</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "checker", label: "Trong Suốt" },
+                  { id: "dark", label: "Nền Tối" },
+                  { id: "light", label: "Nền Sáng" },
+                ].map((bg) => (
+                  <button
+                    key={bg.id}
+                    onClick={() => setPreviewBg(bg.id as any)}
+                    className={`py-1.5 rounded-lg border text-center transition ${
+                      previewBg === bg.id
+                        ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 font-bold"
+                        : "bg-slate-900 border-slate-800 text-slate-400"
+                    }`}
+                  >
+                    {bg.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* KHUNG XEM TRƯỚC TRUNG TÂM */}
-        <div className="flex-1 flex items-center justify-center p-6 bg-[#0a0b0e] overflow-hidden">
-          <div className="w-[320px] h-[568px] rounded-2xl border border-slate-800 bg-slate-950/80 shadow-2xl relative overflow-hidden flex items-center justify-center">
-            <span className="text-xs text-slate-600 font-mono">Khung xem trước Watermark</span>
+        <div
+          className={`flex-1 flex items-center justify-center p-8 transition-colors ${
+            previewBg === "dark"
+              ? "bg-[#0b0c0e]"
+              : previewBg === "light"
+              ? "bg-slate-200"
+              : "bg-[linear-gradient(45deg,#1e222b_25%,transparent_25%),linear-gradient(-45deg,#1e222b_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#1e222b_75%),linear-gradient(-45deg,transparent_75%,#1e222b_75%)] [background-size:20px_20px] bg-slate-950"
+          }`}
+        >
+          <div
+            ref={watermarkRef}
+            style={{
+              opacity: opacity,
+              transform: `scale(${scale})`,
+              transformOrigin: "center center",
+            }}
+            className="p-4 transition-all duration-150 inline-block"
+          >
+            {selectedStyle === "W1" && (
+              <div className="flex items-center gap-3 bg-[#1e222b]/95 backdrop-blur-md pl-1.5 pr-4 py-1.5 rounded-full border border-slate-700 shadow-2xl">
+                <div className="w-8 h-8 rounded-full bg-[#f97316] p-0.5 border border-white/50 shrink-0 overflow-hidden flex items-center justify-center shadow">
+                  <img src={mascotAvatar} alt="Avatar" className="w-full h-full object-contain" />
+                </div>
+                <div className="flex items-center gap-1.5 leading-none">
+                  <span className="font-extrabold text-white text-sm tracking-wide">
+                    {text}
+                  </span>
+                  <svg className="w-3.5 h-3.5 text-[#0095f6] fill-current shrink-0" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
+                  </svg>
+                </div>
+              </div>
+            )}
+
+            {selectedStyle === "W2" && (
+              <div className="flex items-center gap-2.5 text-white font-black text-2xl drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+                <span className="font-mono text-[#f59e0b] text-3xl font-black drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]">@</span>
+                <span className="tracking-tight uppercase font-extrabold">{text}</span>
+              </div>
+            )}
+
+            {selectedStyle === "W3" && (
+              <div className="relative inline-flex items-center">
+                <div className="absolute -bottom-1 -right-2 w-8 h-6 bg-[#16a34a] rounded-sm transform rotate-12 -z-10" />
+                <div className="px-5 py-2 bg-gradient-to-r from-[#ea580c] to-[#f97316] text-white font-black text-base rounded-2xl shadow-2xl border-2 border-white uppercase tracking-wider drop-shadow-xl transform rotate-[-2deg]">
+                  {text}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

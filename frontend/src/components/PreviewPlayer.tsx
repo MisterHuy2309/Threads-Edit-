@@ -60,6 +60,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   bgStartTime = 0,
   bgDuration = 10,
   bgTrimStart = 0,
+  bgSpeed = 1.0,
   hasBgClipOnTimeline = false,
   memeImageList = [],
   setMemeImageList,
@@ -111,9 +112,17 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
     if (!video || !isVideo) return;
 
     if (isInsideBgVideo && selectedBg) {
-      const targetVideoTime = Math.max(0, bgTrimStart + (currentTime - bgStartTime));
+      const elapsed = Math.max(0, currentTime - bgStartTime) * (bgSpeed || 1.0);
+      const rawTarget = bgTrimStart + elapsed;
+      const vidDur = video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 999999;
+      const targetVideoTime = rawTarget % vidDur;
+
+      if (video.playbackRate !== (bgSpeed || 1.0)) {
+        video.playbackRate = bgSpeed || 1.0;
+      }
+
       const timeDiff = Math.abs(video.currentTime - targetVideoTime);
-      if (!isPlaying || timeDiff > 0.45) {
+      if (!isPlaying || timeDiff > 0.6) {
         if (!video.seeking) {
           video.currentTime = targetVideoTime;
         }
@@ -132,7 +141,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
         video.pause();
       }
     }
-  }, [currentTime, isPlaying, isVideo, isInsideBgVideo, selectedBg, bgStartTime, bgDuration, bgTrimStart]);
+  }, [currentTime, isPlaying, isVideo, isInsideBgVideo, selectedBg, bgStartTime, bgDuration, bgTrimStart, bgSpeed]);
 
   const handleStartResizeImage = (e: React.MouseEvent) => {
     e.stopPropagation();

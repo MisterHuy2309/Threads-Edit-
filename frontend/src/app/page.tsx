@@ -738,7 +738,7 @@ export default function CapCutThreadsStudio() {
           watermark: {
             enabled: watermarkEnabled,
             style: watermarkStyle,
-            file_name: watermarkFileName,
+            image_url: `http://127.0.0.1:8000/media/watermarks/${watermarkFileName || "watermark_1.png"}`,
             opacity: watermarkOpacity / 100,
             scale: watermarkScale,
             x: watermarkX,
@@ -866,23 +866,23 @@ export default function CapCutThreadsStudio() {
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
               {leftTab === "tts" && (
                 <VoiceTab
-                  {...({ onOcrScan: handleOcrToStandaloneText } as any)}
-                  voices={voices}
-                  standaloneText={standaloneText}
-                  setStandaloneText={setStandaloneText}
-                  standaloneVoice={standaloneVoice}
-                  setStandaloneVoice={setStandaloneVoice}
-                  standaloneSpeed={standaloneSpeed}
-                  setStandaloneSpeed={setStandaloneSpeed}
-                  isScanningOcr={isScanningOcr}
-                  isGeneratingTts={isGeneratingTts}
-                  latestAudio={latestAudio}
-                  onOcrScan={handleOcrToStandaloneText}
-                  onGenerateTts={handleGenerateStandaloneVoice}
-                  onAddLatestVoice={handleAddLatestVoiceToTimeline}
-                  onAddManualVoice={handleAddManualVoiceToTimeline}
-                  onAddManualVoiceToTimeline={handleAddManualVoiceToTimeline}
-                />
+                standaloneText={standaloneText}
+                setStandaloneText={setStandaloneText}
+                standaloneVoice={standaloneVoice}
+                setStandaloneVoice={setStandaloneVoice}
+                standaloneSpeed={standaloneSpeed}
+                setStandaloneSpeed={setStandaloneSpeed}
+                voices={voices}
+                isScanningOcr={isScanningOcr}
+                isGeneratingTts={isGeneratingTts}
+                latestAudio={latestAudio}
+                handleOcrToStandaloneText={handleOcrToStandaloneText}
+                handleGenerateStandaloneVoice={handleGenerateStandaloneVoice}
+                handleAddLatestVoiceToTimeline={handleAddLatestVoiceToTimeline}
+                onAddManualVoiceToTimeline={handleAddManualVoiceToTimeline}
+                currentTopic={currentTopic}
+                topics={topics.length > 0 ? topics : ["general"]}
+              />
               )}
                             {leftTab === "topics" && (
                 <TopicsTab
@@ -959,13 +959,15 @@ export default function CapCutThreadsStudio() {
               )}
                             {leftTab === "assets" && (
                 <AssetsTab
-                  {...({
-                    onAddAudio: handleAddAudioToTimeline,
-                    onAddMeme: handleAddMemeImageToTimeline,
-                    onSelectAudio: handleAddAudioToTimeline,
-                    onSelectMeme: handleAddMemeImageToTimeline
-                  } as any)}
-                />
+                onAddAudioToTimeline={handleAddAudioToTimeline}
+                onAddMemeImageToTimeline={handleAddMemeImageToTimeline}
+                {...({
+                  onAddAudio: handleAddAudioToTimeline,
+                  onAddMeme: handleAddMemeImageToTimeline,
+                  onSelectAudio: handleAddAudioToTimeline,
+                  onSelectMeme: handleAddMemeImageToTimeline,
+                } as any)}
+              />
               )}
             </div>
           </div>
@@ -1042,6 +1044,10 @@ export default function CapCutThreadsStudio() {
           <div className="flex-1 overflow-y-auto overflow-x-auto p-4 flex flex-col items-center justify-start min-h-0">
             <PreviewPlayer
               hasBgClipOnTimeline={!!currentActiveBgClip}
+              bgStartTime={currentActiveBgClip ? currentActiveBgClip.startTime : 0}
+              bgDuration={currentActiveBgClip ? currentActiveBgClip.duration : 0}
+              bgTrimStart={currentActiveBgClip ? currentActiveBgClip.trimStart : 0}
+              bgSpeed={currentActiveBgClip ? (currentActiveBgClip.speed || 1.0) : 1.0}
               bgClips={bgClips}
               selectedBg={activeTimelineBgUrl}
               previewActiveBlock={previewActiveBlock}
@@ -1276,4 +1282,5 @@ export default function CapCutThreadsStudio() {
     </div>
   );
 }
+
 
