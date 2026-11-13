@@ -50,4 +50,5 @@ app.include_router(assets.router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    # Tắt reload=False để tránh server tự restart khi ghi file vào temp_render/media lúc đang render
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)

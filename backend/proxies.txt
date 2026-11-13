@@ -1,4 +1,4 @@
 # Danh sach proxy song nhanh
 direct
 http://161.35.70.249:80
-http://138.68.60.8:3128
+http://47.243.92.199:3128
