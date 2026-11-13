@@ -7,7 +7,7 @@ import shutil
 import threading
 import subprocess
 import urllib.parse
-from typing import List, Optional, Any
+from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 from proglog import ProgressBarLogger
@@ -112,7 +112,6 @@ class CancellableRenderLogger(ProgressBarLogger):
                 state["progress"] = min(98, max(state.get("progress", 25), percent))
                 write_job_state(self.job_id, state)
 
-# Cho phép nhận thêm các trường alias từ frontend (extra="allow")
 class BgClipInput(BaseModel):
     model_config = ConfigDict(extra="allow")
     video_path: Optional[str] = None
@@ -134,11 +133,14 @@ class OverlayBlockInput(BaseModel):
     startTime: Optional[float] = 0.0
     start: Optional[float] = None
     duration: float = 3.0
+    trimStart: Optional[float] = 0.0
     img_x: float = 0.0
     img_y: float = 0.0
     img_width: float = 800.0
     animation: Optional[str] = "none"
     opacity: Optional[float] = 1.0
+    volume: Optional[float] = 100.0
+    muted: Optional[bool] = False
 
 class AudioTrackInput(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -153,6 +155,7 @@ class AudioTrackInput(BaseModel):
     speed: Optional[float] = None
     playbackRate: Optional[float] = None
     rate: Optional[float] = None
+    pitch: Optional[float] = 50.0  # Gốc 50% (0% -> -6 semitones, 50% -> 0, 100% -> +6 semitones)
     volume: Optional[float] = 100.0
 
 class WatermarkInput(BaseModel):
@@ -256,16 +259,11 @@ def extract_bg_segment_ffmpeg(
     target_h: int,
     fps: int
 ) -> str:
-    """
-    Dùng FFmpeg trích xuất chính xác từng đoạn video nền (cắt trimStart, chỉnh speed, scale+crop chuẩn 9:16, loop nếu thiếu)
-    thành file mp4 sạch độc lập. Khắc phục 100% lỗi hỏng khung hình và cách đoạn của MoviePy!
-    """
     seg_out = os.path.join(TEMP_DIR, f"{job_id}_bg_{idx}.mp4")
     spd = speed if (speed and speed > 0.1) else 1.0
     t_start = max(0.0, trim_start or 0.0)
     req_dur = max(0.1, req_duration)
 
-    # Bộ lọc scale phủ kín khung hình target_w x target_h và crop chính giữa + đổi tốc độ setpts
     vf = (
         f"setpts=PTS/{spd},"
         f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
@@ -273,10 +271,8 @@ def extract_bg_segment_ffmpeg(
         f"fps={fps},format=yuv420p"
     )
 
-    # Dùng -stream_loop -1 nếu clip gốc ngắn hơn req_dur để đảm bảo lấp kín toàn bộ block trên timeline
     cmd = [
         "ffmpeg", "-y",
-        "-stream_loop", "-1",
         "-ss", f"{t_start:.3f}",
         "-i", src_path,
         "-t", f"{req_dur:.3f}",
@@ -288,16 +284,22 @@ def extract_bg_segment_ffmpeg(
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     return seg_out
 
-def prepare_normalized_audio(src_path: str, job_id: str, idx: int, speed: float = 1.0) -> str:
-    """
-    Áp dụng chính xác tốc độ đọc của block voice/audio bằng FFmpeg atempo và xuất WAV Stereo 44100Hz.
-    """
+def prepare_normalized_audio(src_path: str, job_id: str, idx: int, speed: float = 1.0, pitch_pct: float = 50.0) -> str:
     norm_wav = os.path.join(TEMP_DIR, f"{job_id}_aud_{idx}.wav")
     spd = speed if (speed and speed > 0.1) else 1.0
-    if abs(spd - 1.0) >= 0.01:
-        # Xây dựng chuỗi atempo hỗ trợ mọi dải tốc độ từ 0.25x đến 4.0x
-        filters = []
-        rem = spd
+    p_val = 50.0 if pitch_pct is None else float(pitch_pct)
+    
+    semitones = ((p_val - 50.0) / 50.0) * 6.0
+    pitch_scale = 2 ** (semitones / 12.0)
+
+    filters = []
+    if abs(semitones) >= 0.02:
+        new_sr = int(44100 * pitch_scale)
+        filters.append(f"asetrate={new_sr},aresample=44100")
+    
+    total_tempo = spd * pitch_scale
+    if abs(total_tempo - 1.0) >= 0.01:
+        rem = total_tempo
         while rem < 0.5:
             filters.append("atempo=0.5")
             rem /= 0.5
@@ -305,10 +307,13 @@ def prepare_normalized_audio(src_path: str, job_id: str, idx: int, speed: float 
             filters.append("atempo=2.0")
             rem /= 2.0
         filters.append(f"atempo={round(rem, 4)}")
+
+    if filters:
         af = ",".join(filters)
         cmd = ["ffmpeg", "-y", "-i", src_path, "-af", af, "-ar", "44100", "-ac", "2", norm_wav]
     else:
         cmd = ["ffmpeg", "-y", "-i", src_path, "-ar", "44100", "-ac", "2", norm_wav]
+
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     return norm_wav
 
@@ -320,10 +325,6 @@ def run_render_task(job_id: str, req: ExportRequest):
 
     try:
         print(f"[Render Start] Job={job_id}, Res={req.resolution}, FPS={req.fps}")
-        print(f"[Payload Debug] bg={len(req.bg_clips)}, blocks={len(req.blocks)}, voices={len(req.voices or [])}, bgm={len(req.bgm_list or [])}")
-        for i, v_item in enumerate(req.voices or []):
-            print(f"   -> Voice[{i}]: start={v_item.startTime}, dur={v_item.duration}, speed={v_item.speed}, playbackRate={v_item.playbackRate}, extra={v_item.model_extra}")
-
         state["progress"] = 3
         write_job_state(job_id, state)
 
@@ -334,8 +335,9 @@ def run_render_task(job_id: str, req: ExportRequest):
 
         video_clips = []
         audio_clips = []
+        aud_counter = 0
 
-        # 1. Xử lý từng clip nền bằng FFmpeg độc lập -> Không bao giờ hỏng khung hình hay cách đoạn
+        # 1. Video nền
         sorted_bg = sorted(req.bg_clips, key=lambda x: (x.startTime if x.startTime is not None else (x.start or 0.0)))
         for idx, clip_info in enumerate(sorted_bg):
             check_cancelled(job_id)
@@ -359,7 +361,7 @@ def run_render_task(job_id: str, req: ExportRequest):
                 )
                 v = VideoFileClip(seg_mp4).without_audio()
                 opened_clips.append(v)
-                sub_v = v.set_start(st_time).set_duration(clip_info.duration)
+                sub_v = v.set_start(st_time).set_duration(min(clip_info.duration, v.duration))
                 video_clips.append(sub_v)
 
         state["progress"] = 12
@@ -385,7 +387,7 @@ def run_render_task(job_id: str, req: ExportRequest):
         state["progress"] = 15
         write_job_state(job_id, state)
 
-        # 3. Meme Ảnh / Video
+        # 3. Meme Ảnh / Video (Giữ nguyên âm thanh gốc nếu là file Video!)
         if req.meme_images:
             for idx, m in enumerate(req.meme_images):
                 check_cancelled(job_id)
@@ -393,28 +395,52 @@ def run_render_task(job_id: str, req: ExportRequest):
                 m_path = resolve_local_path(raw_m)
                 if os.path.exists(m_path):
                     st_time = m.startTime if m.startTime is not None else (m.start or 0.0)
+                    tr_start = max(0.0, m.trimStart or 0.0)
                     target_m_w = int((m.img_width or 350) * scale_factor)
                     if m_path.lower().endswith((".mp4", ".mov", ".webm", ".mkv")):
-                        mv = VideoFileClip(m_path).without_audio()
+                        mv = VideoFileClip(m_path)
                         opened_clips.append(mv)
-                        meme_clip = mv.subclip(0, min(m.duration, mv.duration)).resize(width=target_m_w)
-                        if m.opacity is not None and m.opacity < 1.0 and hasattr(meme_clip, "set_opacity"):
-                            meme_clip = meme_clip.set_opacity(m.opacity)
+                        actual_dur = min(m.duration, max(0.1, mv.duration - tr_start))
+                        meme_vid = mv.without_audio().subclip(tr_start, tr_start + actual_dur).resize(width=target_m_w)
+                        if m.opacity is not None and m.opacity < 1.0 and hasattr(meme_vid, "set_opacity"):
+                            meme_vid = meme_vid.set_opacity(m.opacity)
+                        meme_clip = (
+                            meme_vid
+                            .set_start(st_time)
+                            .set_duration(actual_dur)
+                            .set_position((int(m.img_x * scale_factor), int(m.img_y * scale_factor)))
+                        )
+                        opened_clips.append(meme_clip)
+                        video_clips.append(meme_clip)
+
+                        # Trích xuất âm thanh của Video Meme ghép vào luồng audio tổng
+                        if mv.audio is not None and not (m.muted):
+                            try:
+                                norm_mv_wav = prepare_normalized_audio(m_path, job_id, f"meme_{aud_counter}", speed=1.0, pitch_pct=50.0)
+                                aud_counter += 1
+                                mv_aud = AudioFileClip(norm_mv_wav, fps=44100)
+                                opened_clips.append(mv_aud)
+                                a_end = min(mv_aud.duration, tr_start + actual_dur)
+                                if a_end > tr_start:
+                                    vol_ratio = (m.volume if m.volume is not None else 100.0) / 100.0
+                                    mv_sub_aud = mv_aud.subclip(tr_start, a_end).set_start(st_time).volumex(vol_ratio)
+                                    audio_clips.append(mv_sub_aud)
+                            except Exception as ae:
+                                print(f"[Meme Audio Warning]: {ae}")
                     else:
-                        meme_clip = make_pil_image_clip(m_path, target_m_w, m.opacity if m.opacity is not None else 1.0)
-                    meme_clip = (
-                        meme_clip
-                        .set_start(st_time)
-                        .set_duration(m.duration)
-                        .set_position((int(m.img_x * scale_factor), int(m.img_y * scale_factor)))
-                    )
-                    opened_clips.append(meme_clip)
-                    video_clips.append(meme_clip)
+                        meme_clip = (
+                            make_pil_image_clip(m_path, target_m_w, m.opacity if m.opacity is not None else 1.0)
+                            .set_start(st_time)
+                            .set_duration(m.duration)
+                            .set_position((int(m.img_x * scale_factor), int(m.img_y * scale_factor)))
+                        )
+                        opened_clips.append(meme_clip)
+                        video_clips.append(meme_clip)
 
         state["progress"] = 18
         write_job_state(job_id, state)
 
-        # 4. Audio (Voice + BGM + SoundFX): Bắt mọi tên trường tốc độ (speed / playbackRate / rate)
+        # 4. Audio (Voice + BGM + SoundFX) kèm Speed + Pitch
         all_audios = (req.voices or []) + (req.bgm_list or []) + (req.sound_fx_list or [])
         for idx, a in enumerate(all_audios):
             check_cancelled(job_id)
@@ -423,19 +449,19 @@ def run_render_task(job_id: str, req: ExportRequest):
             if os.path.exists(a_p) and os.path.getsize(a_p) > 100:
                 st_time = a.startTime if a.startTime is not None else (a.start or 0.0)
                 tr_start = a.trimStart if a.trimStart is not None else (a.trim_start or 0.0)
-                
-                # Tìm tốc độ thực tế của block trên timeline
+
                 spd = 1.0
                 for cand_spd in [a.speed, a.playbackRate, a.rate]:
                     if cand_spd is not None and cand_spd > 0:
                         spd = float(cand_spd)
                         break
 
-                norm_wav = prepare_normalized_audio(a_p, job_id, idx, speed=spd)
+                p_pct = a.pitch if a.pitch is not None else 50.0
+                norm_wav = prepare_normalized_audio(a_p, job_id, f"track_{aud_counter}", speed=spd, pitch_pct=p_pct)
+                aud_counter += 1
                 a_clip = AudioFileClip(norm_wav, fps=44100)
                 opened_clips.append(a_clip)
 
-                # Sau khi đổi tốc độ bằng FFmpeg, thời lượng file norm_wav đã tự co giãn đúng tỷ lệ (dur / spd)
                 t_start = max(0.0, tr_start)
                 t_end = min(a_clip.duration, t_start + a.duration)
                 if t_end > t_start:
@@ -452,7 +478,7 @@ def run_render_task(job_id: str, req: ExportRequest):
 
         total_dur = max([c.end for c in video_clips] + ([a.end for a in audio_clips] if audio_clips else [5.0]))
 
-        # 5. Watermark (Lớp trên cùng)
+        # 5. Watermark
         if req.watermark and req.watermark.enabled:
             wm_file = get_watermark_file_path(req.watermark)
             if wm_file and os.path.exists(wm_file):
@@ -484,7 +510,6 @@ def run_render_task(job_id: str, req: ExportRequest):
 
         state["progress"] = 25
         write_job_state(job_id, state)
-        print(f"[Render Composing] Total duration={total_dur:.2f}s, Audio tracks={len(audio_clips)}")
 
         final_video = CompositeVideoClip(video_clips, size=(target_w, target_h)).set_duration(total_dur)
         if audio_clips:
@@ -529,7 +554,6 @@ def run_render_task(job_id: str, req: ExportRequest):
         print(f"[Render Done] {out_filename}")
 
     except InterruptedError:
-        print(f"[Render Cancelled] Job={job_id}")
         if final_video:
             try: final_video.close()
             except Exception: pass
@@ -544,7 +568,6 @@ def run_render_task(job_id: str, req: ExportRequest):
     except Exception as err:
         import traceback
         traceback.print_exc()
-        print(f"[Render Error]: {err}")
         if final_video:
             try: final_video.close()
             except Exception: pass
@@ -583,3 +606,5 @@ async def cancel_export_task(job_id: str):
     state["status"] = "cancelled"
     write_job_state(job_id, state)
     return {"status": "cancelled"}
+
+

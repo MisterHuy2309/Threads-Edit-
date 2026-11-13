@@ -33,6 +33,7 @@ export interface VoiceItem {
   maxDuration: number;
   trimStart?: number;
   speed?: number;
+  pitch?: number;
   originalDuration?: number;
   groupId?: string;
 }
@@ -114,6 +115,7 @@ export interface TimelineMemeImageItem {
   type?: "image" | "video";
   animation?: "none" | "fade" | "pop" | "slide_up";
   opacity?: number;
+  volume?: number;
   groupId?: string;
 }
 

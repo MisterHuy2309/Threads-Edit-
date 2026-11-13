@@ -488,9 +488,13 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   useEffect(() => {
     const allAudioItems = [
-      ...voiceList.map((v) => ({ id: v.id, url: v.url || (v as any).path, startTime: v.startTime, duration: v.duration, trimStart: v.trimStart || 0, speed: v.speed || 1.0, vol: 1.0 })),
-      ...bgmList.map((b) => ({ id: b.id, url: b.url, startTime: b.startTime, duration: b.duration, trimStart: b.trimStart || 0, speed: b.speed || 1.0, vol: (b.volume ?? 100) / 100 })),
-      ...soundFxList.map((s) => ({ id: s.id, url: s.url, startTime: s.startTime, duration: s.duration, trimStart: s.trimStart || 0, speed: s.speed || 1.0, vol: (s.volume ?? 100) / 100 })),
+      ...voiceList.map((v) => {
+        const pPct = v.pitch ?? 50;
+        const pRatio = Math.pow(2, (((pPct - 50) / 50) * 6) / 12);
+        return { id: v.id, url: v.url || (v as any).path, startTime: v.startTime, duration: v.duration, trimStart: v.trimStart || 0, speed: (v.speed || 1.0) * pRatio, vol: 1.0, hasPitch: pPct !== 50 };
+      }),
+      ...bgmList.map((b) => ({ id: b.id, url: b.url, startTime: b.startTime, duration: b.duration, trimStart: b.trimStart || 0, speed: b.speed || 1.0, vol: (b.volume ?? 100) / 100, hasPitch: false })),
+      ...soundFxList.map((s) => ({ id: s.id, url: s.url, startTime: s.startTime, duration: s.duration, trimStart: s.trimStart || 0, speed: s.speed || 1.0, vol: (s.volume ?? 100) / 100, hasPitch: false })),
     ];
 
     allAudioItems.forEach((track) => {
@@ -504,7 +508,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       const targetOffset = (elapsedInTrack * speed) + track.trimStart;
 
       el.volume = Math.max(0, Math.min(1, track.vol));
-      if (el.playbackRate !== speed) el.playbackRate = speed;
+      el.preservesPitch = !track.hasPitch; (el as any).webkitPreservesPitch = !track.hasPitch; if (Math.abs(el.playbackRate - speed) > 0.01) el.playbackRate = speed;
 
       if (isPlaying && isInside) {
         const maxDur = el.duration && !isNaN(el.duration) ? el.duration : 999999;
@@ -620,16 +624,32 @@ export const Timeline: React.FC<TimelineProps> = ({
             let updatedStart = currentItem.startTime;
             let updatedDur = currentItem.duration;
 
+            let updatedTrim = currentItem.trimStart || 0;
             if (dragAction.type === "move") {
               const rawMoved = Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2)));
-            updatedStart = applyMagneticSnap(rawMoved, 0.25);
+              updatedStart = applyMagneticSnap(rawMoved, 0.25);
             } else if (dragAction.type === "resize-right") {
-              updatedDur = Math.max(0.3, Number((dragAction.initialDuration + deltaSeconds).toFixed(2)));
+              const maxAllowed = Math.max(0.3, dragAction.maxOriginalDuration - updatedTrim);
+              updatedDur = Math.max(0.3, Math.min(maxAllowed, Number((dragAction.initialDuration + deltaSeconds).toFixed(2))));
             } else if (dragAction.type === "resize-left") {
-              const rawStart = dragAction.initialStart + deltaSeconds;
-              const diff = rawStart - dragAction.initialStart;
-              updatedStart = Math.max(0, Number(rawStart.toFixed(2)));
-              updatedDur = Math.max(0.3, Number((dragAction.initialDuration - diff).toFixed(2)));
+              if (dragAction.maxOriginalDuration < 900000) {
+                const { newStart, newTrim, newDur } = calcResizeLeft(
+                  dragAction.initialStart,
+                  dragAction.initialTrimStart,
+                  dragAction.initialDuration,
+                  dragAction.maxOriginalDuration,
+                  deltaSeconds,
+                  1.0
+                );
+                updatedStart = newStart;
+                updatedTrim = newTrim;
+                updatedDur = newDur;
+              } else {
+                const rawStart = dragAction.initialStart + deltaSeconds;
+                const diff = rawStart - dragAction.initialStart;
+                updatedStart = Math.max(0, Number(rawStart.toFixed(2)));
+                updatedDur = Math.max(0.3, Number((dragAction.initialDuration - diff).toFixed(2)));
+              }
             }
 
             const newEnd = updatedStart + updatedDur;
@@ -637,7 +657,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
             return prev.map((m) => {
               if (m.id === dragAction.id) {
-                return { ...m, startTime: updatedStart, duration: updatedDur };
+                return { ...m, startTime: updatedStart, duration: updatedDur, trimStart: updatedTrim };
               }
               if (shouldRipple && m.startTime >= oldEnd - 0.05) {
                 return { ...m, startTime: Math.max(newEnd, Number((m.startTime + deltaEnd).toFixed(2))) };
@@ -1072,14 +1092,14 @@ export const Timeline: React.FC<TimelineProps> = ({
                       isSelected ? "bg-pink-600/70 border-white ring-2 ring-white z-20" : isGrouped ? "bg-pink-600/40 border-pink-300 ring-1 ring-pink-400/60 z-15" : "bg-pink-600/30 border-pink-400 hover:border-pink-300 z-10"
                     }`}
                   >
-                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-left", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: 0, maxOriginalDuration: 999999 }); }} className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-l-md transition-all opacity-0 group-hover:opacity-100" />
+                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-left", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: b.trimStart || 0, maxOriginalDuration: 999999 }); }} className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-l-md transition-all opacity-0 group-hover:opacity-100" />
                     {isVid ? (
                       <video src={meme.url} className="h-full w-7 object-cover rounded pointer-events-none mr-1" />
                     ) : (
                       <img src={meme.url} alt="meme" className="h-full w-7 object-contain rounded pointer-events-none mr-1" />
                     )}
                     <span className="text-[10px] text-pink-200 truncate font-semibold pointer-events-none">{meme.duration}s {isGrouped && "🔗"}</span>
-                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-right", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: 0, maxOriginalDuration: 999999 }); }} className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-r-md transition-all opacity-0 group-hover:opacity-100" />
+                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-right", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: b.trimStart || 0, maxOriginalDuration: 999999 }); }} className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-r-md transition-all opacity-0 group-hover:opacity-100" />
                   </div>
                 );
               })}
@@ -1130,12 +1150,12 @@ export const Timeline: React.FC<TimelineProps> = ({
                       isSelected ? "bg-amber-600/70 border-white ring-2 ring-white z-20" : isGrouped ? "bg-amber-600/40 border-amber-300 ring-1 ring-amber-400/60 z-15" : "bg-amber-600/30 border-amber-400/80 hover:border-amber-300 z-10"
                     }`}
                   >
-                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "overlay", type: "resize-left", id: b.id, startX: e.clientX, initialStart: b.startTime, initialDuration: b.duration, initialTrimStart: 0, maxOriginalDuration: 999999 }); }} className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-amber-400/70 hover:bg-amber-300 cursor-ew-resize rounded-l-md transition-all opacity-0 group-hover:opacity-100" />
+                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "overlay", type: "resize-left", id: b.id, startX: e.clientX, initialStart: b.startTime, initialDuration: b.duration, initialTrimStart: b.trimStart || 0, maxOriginalDuration: 999999 }); }} className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-amber-400/70 hover:bg-amber-300 cursor-ew-resize rounded-l-md transition-all opacity-0 group-hover:opacity-100" />
                     <div className="flex items-center gap-1.5 overflow-hidden flex-1 pointer-events-none px-1">
                       {b.image_url && <img src={b.image_url} className="h-6 w-6 object-cover rounded pointer-events-none select-none" />}
                       <span className="text-[10px] text-amber-200 font-semibold truncate">{b.duration}s {isGrouped && "🔗"}</span>
                     </div>
-                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "overlay", type: "resize-right", id: b.id, startX: e.clientX, initialStart: b.startTime, initialDuration: b.duration, initialTrimStart: 0, maxOriginalDuration: 999999 }); }} className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-amber-400/70 hover:bg-amber-300 cursor-ew-resize rounded-r-md transition-all opacity-0 group-hover:opacity-100" />
+                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "overlay", type: "resize-right", id: b.id, startX: e.clientX, initialStart: b.startTime, initialDuration: b.duration, initialTrimStart: b.trimStart || 0, maxOriginalDuration: 999999 }); }} className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-amber-400/70 hover:bg-amber-300 cursor-ew-resize rounded-r-md transition-all opacity-0 group-hover:opacity-100" />
                   </div>
                 );
               })}
@@ -1375,3 +1395,6 @@ export const Timeline: React.FC<TimelineProps> = ({
 };
 
 export default Timeline;
+
+
+

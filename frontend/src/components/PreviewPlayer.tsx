@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useRef, useState, useEffect } from "react";
 import { 
@@ -104,7 +104,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   const bgUrl = getFullMediaUrl(selectedBg);
   const isVideo = /\.(mp4|mov|webm|mkv|avi|m4v)(\?.*)?$/i.test(bgUrl);
   
-  // CHỈ PHÁT VIDEO KHI THỰC SỰ CÓ CLIP NẰM TRÊN TIMELINE
+  // CHá»ˆ PHÃT VIDEO KHI THá»°C Sá»° CÃ“ CLIP Náº°M TRÃŠN TIMELINE
   const isInsideBgVideo = hasBgClipOnTimeline && currentTime >= bgStartTime && currentTime <= (bgStartTime + bgDuration);
 
   useEffect(() => {
@@ -271,7 +271,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
 
   return (
     <div onWheel={handleWheelZoom} className="w-full flex flex-col items-center select-none pt-2 pb-6">
-      {/* KHUNG VIDEO 9:16 CỐ ĐỊNH CHUẨN 320x568px, ĐẢM BẢO CUỘN LÊN/XUỐNG ĐẦY ĐỦ */}
+      {/* KHUNG VIDEO 9:16 Cá» Äá»ŠNH CHUáº¨N 320x568px, Äáº¢M Báº¢O CUá»˜N LÃŠN/XUá»NG Äáº¦Y Äá»¦ */}
       <div 
         ref={containerRef}
         style={{ width: "320px", height: "568px" }}
@@ -300,12 +300,12 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
           )
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center text-xs text-slate-600 gap-1.5 p-4 text-center">
-            <span className="font-semibold text-slate-500">Timeline chưa có video nền</span>
-            <span className="text-[10px] text-slate-700 font-mono">Bấm (+) tại tab Nền để chèn video</span>
+            <span className="font-semibold text-slate-500">Timeline chÆ°a cÃ³ video ná»n</span>
+            <span className="text-[10px] text-slate-700 font-mono">Báº¥m (+) táº¡i tab Ná»n Ä‘á»ƒ chÃ¨n video</span>
           </div>
         )}
 
-        {/* LỚP ẢNH COMMENT */}
+        {/* Lá»šP áº¢NH COMMENT */}
         {previewActiveBlock && (previewActiveBlock.image_url || previewActiveBlock.image_path) && (
           <div
             onMouseDown={handleMouseDownOnImage}
@@ -319,11 +319,11 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
             className={`absolute group cursor-grab active:cursor-grabbing z-25 overflow-hidden ${isDragging ? "ring-2 ring-rose-500 shadow-2xl" : "hover:ring-1 hover:ring-amber-400"}`}
           >
             <img src={getFullMediaUrl(previewActiveBlock.image_url || previewActiveBlock.image_path)} alt="Comment" draggable={false} className="w-full pointer-events-none drop-shadow-2xl block select-none" />
-            <div onMouseDown={handleStartResizeImage} title="Kéo góc để thu nhỏ/phóng to" className="absolute -bottom-2 -right-2 w-4 h-4 bg-amber-400 border border-slate-900 rounded-full cursor-se-resize shadow-lg flex items-center justify-center hover:scale-125 transition-transform" />
+            <div onMouseDown={handleStartResizeImage} title="KÃ©o gÃ³c Ä‘á»ƒ thu nhá»/phÃ³ng to" className="absolute -bottom-2 -right-2 w-4 h-4 bg-amber-400 border border-slate-900 rounded-full cursor-se-resize shadow-lg flex items-center justify-center hover:scale-125 transition-transform" />
           </div>
         )}
 
-        {/* LỚP ẢNH/VIDEO MEME */}
+        {/* Lá»šP áº¢NH/VIDEO MEME */}
         {activeMemes.map((meme) => {
           const fullMemeUrl = getFullMediaUrl(meme.url);
           const isVidMeme = meme.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(meme.url);
@@ -344,7 +344,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
               }`}
             >
               {isVidMeme ? (
-                <video src={fullMemeUrl} autoPlay loop muted playsInline className="w-full drop-shadow-2xl pointer-events-none" />
+                <video src={fullMemeUrl} ref={(el) => { if (el) { const targetT = Math.max(0, (meme.trimStart || 0) + (currentTime - meme.startTime)); el.volume = Math.min(1, ((meme.volume ?? 100) / 100)); if (Math.abs(el.currentTime - targetT) > 0.35 && !el.seeking) { try { el.currentTime = targetT; } catch {} } if (isPlaying) { if (el.paused) el.play().catch(() => {}); } else { if (!el.paused) el.pause(); } } }} playsInline className="w-full drop-shadow-2xl pointer-events-none" />
               ) : (
                 <img src={fullMemeUrl} alt="meme" className="w-full drop-shadow-2xl pointer-events-none select-none" />
               )}
@@ -352,7 +352,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
           );
         })}
 
-        {/* LỚP WATERMARK BẰNG FILE ẢNH (KÉO THẢ TỰ DO) */}
+        {/* Lá»šP WATERMARK Báº°NG FILE áº¢NH (KÃ‰O THáº¢ Tá»° DO) */}
         {watermarkEnabled && (
           <div
             onMouseDown={handleMouseDownWm}
@@ -377,7 +377,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
         )}
       </div>
 
-      {/* THANH ĐIỀU KHIỂN CHUẨN CAPCUT */}
+      {/* THANH ÄIá»€U KHIá»‚N CHUáº¨N CAPCUT */}
       <div className="w-[320px] h-11 px-3 bg-[#14161c]/95 backdrop-blur-md border border-slate-800 rounded-2xl flex items-center justify-between text-slate-300 shadow-xl shrink-0 z-20 font-mono text-xs">
         <div className="flex items-center gap-1 text-[11px]">
           <span className="text-cyan-400 font-bold tracking-tight">{formatTimecode(currentTime)}</span>
@@ -388,7 +388,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
         <button
           onClick={() => setIsPlaying && setIsPlaying(!isPlaying)}
           className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-600 to-cyan-400 hover:from-cyan-500 hover:to-cyan-300 text-slate-950 flex items-center justify-center shadow-lg shadow-cyan-950/60 active:scale-95 transition"
-          title={isPlaying ? "Tạm dừng" : "Phát"}
+          title={isPlaying ? "Táº¡m dá»«ng" : "PhÃ¡t"}
         >
           {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="ml-0.5" />}
         </button>
@@ -399,11 +399,11 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
           </span>
           <button
             onClick={handleFullscreen}
-            title="Xem toàn màn hình"
+            title="Xem toÃ n mÃ n hÃ¬nh"
             className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-white rounded-lg border border-slate-700 transition active:scale-95 text-[11px] font-sans font-bold"
           >
             <Maximize size={12} />
-            <span>Toàn màn hình</span>
+            <span>ToÃ n mÃ n hÃ¬nh</span>
           </button>
         </div>
       </div>
@@ -412,3 +412,4 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
 };
 
 export default PreviewPlayer;
+

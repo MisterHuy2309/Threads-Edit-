@@ -107,7 +107,54 @@ export default function CapCutThreadsStudio() {
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState<number>(0);
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
-  const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+    const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+  const [fbCaption, setFbCaption] = useState<string>("");
+  const [fbHashtags, setFbHashtags] = useState<string>("#threads #storytime #fyp #xuhuong");
+  const [fbPostType, setFbPostType] = useState<"reels" | "feed">("reels");
+  const [fbAutoSubmit, setFbAutoSubmit] = useState<boolean>(true);
+  const [isPublishingFb, setIsPublishingFb] = useState<boolean>(false);
+  const [fbPublishStatus, setFbPublishStatus] = useState<string>("");
+
+  const handleOpenFbLogin = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/facebook/open-login`, { method: "POST" });
+      const d = await res.json();
+      alert(d.message || "Đã mở trình duyệt để đăng nhập Facebook!");
+    } catch {
+      alert("Không kết nối được backend để mở trình duyệt!");
+    }
+  };
+
+  const handleApproveAndPublishFb = async () => {
+    if (!renderedUrl || isPublishingFb) return;
+    setIsPublishingFb(true);
+    setFbPublishStatus("Đang khởi động trình duyệt & tải video lên Facebook...");
+    try {
+      const res = await fetch(`${API_BASE}/api/facebook/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_url: renderedUrl,
+          caption: fbCaption,
+          hashtags: fbHashtags,
+          post_type: fbPostType,
+          auto_submit: fbAutoSubmit,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Lỗi khi đăng lên Facebook!");
+        setFbPublishStatus("");
+      } else {
+        setFbPublishStatus(data.message || "Đăng Facebook thành công!");
+      }
+    } catch {
+      alert("Lỗi kết nối tới API đăng Facebook!");
+      setFbPublishStatus("");
+    } finally {
+      setIsPublishingFb(false);
+    }
+  };
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- UNDO / REDO SNAPSHOTS ---
@@ -342,7 +389,7 @@ export default function CapCutThreadsStudio() {
       trimStart: 0,
       type: type,
       volume: 100,
-      speed: 1.0,
+      speed: 1.0, pitch: 50,
     };
     if (type === "bgm") {
       setBgmList((prev) => [...prev, newAudio]);
@@ -404,7 +451,7 @@ export default function CapCutThreadsStudio() {
       duration: latestAudio.duration,
       maxDuration: latestAudio.maxDuration || latestAudio.duration,
       trimStart: 0,
-      speed: 1.0,
+      speed: 1.0, pitch: 50,
     };
     setVoiceList((prev) => [...prev, newVoice]);
     setSelectedVoiceId(newVoice.id);
@@ -428,7 +475,7 @@ export default function CapCutThreadsStudio() {
         duration: dur,
         maxDuration: dur,
         trimStart: 0,
-        speed: 1.0,
+        speed: 1.0, pitch: 50,
       };
       setSelectedVoiceId(newVoice.id);
       return [...safePrev, newVoice];
@@ -708,6 +755,8 @@ export default function CapCutThreadsStudio() {
             img_x: m.img_x,
             img_y: m.img_y,
             img_width: m.img_width,
+            trimStart: m.trimStart || 0,
+            volume: m.volume ?? 100.0,
             animation: m.animation || "none",
             opacity: m.opacity ?? 1.0,
           })),
@@ -717,6 +766,7 @@ export default function CapCutThreadsStudio() {
             duration: v.duration,
             trimStart: v.trimStart || 0,
             speed: v.speed || 1.0,
+            pitch: v.pitch ?? 50,
             volume: 100.0,
           })),
           bgm_list: bgmList.map((b) => ({
@@ -1159,7 +1209,7 @@ export default function CapCutThreadsStudio() {
       {/* MODAL XUẤT VIDEO */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#16181d] border border-slate-700 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-4">
+          <div className={`bg-[#16181d] border border-slate-700 w-full ${renderedUrl ? "max-w-2xl" : "max-w-lg"} rounded-2xl p-5 shadow-2xl space-y-4 transition-all`}>
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <span className="font-bold text-slate-100 flex items-center gap-2">
                 <Film size={16} className="text-rose-500" /> Xuất Bản Video 9:16
@@ -1282,5 +1332,7 @@ export default function CapCutThreadsStudio() {
     </div>
   );
 }
+
+
 
 

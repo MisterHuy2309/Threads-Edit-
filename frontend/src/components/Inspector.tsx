@@ -1,8 +1,8 @@
 ﻿"use client";
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { 
-  Volume2, VolumeX, Volume1, Sliders, Music, Mic, RotateCcw, Play, Pause, Sparkles, Gauge, Film, Smile
+  Volume2, VolumeX, Volume1, Sliders, Music, Mic, RotateCcw, Play, Pause, Sparkles, Gauge, Film, Smile, Activity
 } from "lucide-react";
 import { TimelineBlock, TimelineAudioItem, VoiceItem, BgClipItem, TimelineMemeImageItem } from "@/types";
 
@@ -42,26 +42,53 @@ export const Inspector: React.FC<InspectorProps> = ({
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
 
-  const togglePreviewWithSpeed = (url: string, speed: number = 1.0) => {
-    if (!audioPreviewRef.current) return;
+  const getFullUrl = (url: string) => {
+    if (!url) return "";
+    if (url.startsWith("http") || url.startsWith("blob:")) return url;
+    return `http://127.0.0.1:8000${url.startsWith("/") ? "" : "/"}${url}`;
+  };
+
+  const togglePreviewWithSpeedAndPitch = (url: string, speed: number = 1.0, pitchPct: number = 50) => {
+    const el = audioPreviewRef.current;
+    if (!el) return;
     if (isPlayingPreview) {
-      audioPreviewRef.current.pause();
+      el.pause();
       setIsPlayingPreview(false);
     } else {
-      audioPreviewRef.current.src = url;
-      audioPreviewRef.current.playbackRate = speed;
-      audioPreviewRef.current.play().then(() => setIsPlayingPreview(true)).catch(() => {});
+      el.src = getFullUrl(url);
+      // Tính hệ số pitch (50% = 1.0, 0% = 0.707, 100% = 1.414)
+      const semitones = ((pitchPct - 50) / 50) * 6;
+      const pitchRatio = Math.pow(2, semitones / 12);
+      el.preservesPitch = false;
+      (el as any).mozPreservesPitch = false;
+      (el as any).webkitPreservesPitch = false;
+      el.playbackRate = Math.max(0.4, Math.min(3.0, speed * pitchRatio));
+      el.play().then(() => setIsPlayingPreview(true)).catch(() => {});
     }
   };
 
-  // 1. CẤU HÌNH BLOCK MEME (ẢNH HOẶC VIDEO MEME KÈM WATERMARK OPACITY)
+  useEffect(() => {
+    const el = audioPreviewRef.current;
+    if (!el || !isPlayingPreview || !activeVoiceItem) return;
+    const speed = activeVoiceItem.speed || 1.0;
+    const pitchPct = activeVoiceItem.pitch ?? 50;
+    const semitones = ((pitchPct - 50) / 50) * 6;
+    const pitchRatio = Math.pow(2, semitones / 12);
+    el.preservesPitch = false;
+    el.playbackRate = Math.max(0.4, Math.min(3.0, speed * pitchRatio));
+  }, [activeVoiceItem?.speed, activeVoiceItem?.pitch, isPlayingPreview]);
+
+  // 1. CẤU HÌNH BLOCK MEME (ẢNH HOẶC VIDEO MEME)
   if (activeMemeItem) {
     const opacity = activeMemeItem.opacity ?? 1.0;
+    const isVidMeme = activeMemeItem.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(activeMemeItem.url);
+    const memeVol = activeMemeItem.volume ?? 100;
+
     return (
       <div className="w-[320px] border-l border-slate-800 bg-[#121316] flex flex-col shrink-0 select-none text-xs">
         <div className="h-10 px-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60 font-medium">
           <span className="text-slate-200 flex items-center gap-1.5 font-semibold">
-            <Smile size={14} className="text-pink-400" /> Cài Đặt Ảnh/Video Meme
+            <Smile size={14} className="text-pink-400" /> Cài Đặt {isVidMeme ? "Video Meme" : "Ảnh Meme"}
           </span>
           <span className="text-[10px] text-slate-500 font-mono">{activeMemeItem.duration}s</span>
         </div>
@@ -72,7 +99,29 @@ export const Inspector: React.FC<InspectorProps> = ({
             <p className="text-slate-200 font-semibold truncate text-xs">{activeMemeItem.name}</p>
           </div>
 
-          {/* ĐỘ MỜ WATERMARK */}
+          {isVidMeme && (
+            <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="font-semibold flex items-center gap-1.5">
+                  {memeVol === 0 ? <VolumeX size={14} className="text-rose-400" /> : <Volume2 size={14} className="text-amber-400" />}
+                  Âm lượng Video Meme
+                </span>
+                <span className="font-mono text-amber-400 font-bold text-xs">{memeVol}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={200}
+                step={5}
+                value={memeVol}
+                onChange={(e) => {
+                  if (onUpdateMemeItem) onUpdateMemeItem(activeMemeItem.id, { volume: Number(e.target.value) });
+                }}
+                className="w-full accent-amber-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+              />
+            </div>
+          )}
+
           <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
             <div className="flex items-center justify-between text-slate-300">
               <span className="font-semibold flex items-center gap-1.5">
@@ -108,7 +157,6 @@ export const Inspector: React.FC<InspectorProps> = ({
             </div>
           </div>
 
-          {/* KÍCH THƯỚC VÀ VỊ TRÍ */}
           <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
             <div className="space-y-1">
               <div className="flex justify-between text-slate-400">
@@ -179,7 +227,7 @@ export const Inspector: React.FC<InspectorProps> = ({
             <p className="text-slate-200 font-semibold truncate text-xs">{activeAudioItem.name}</p>
 
             <button
-              onClick={() => togglePreviewWithSpeed(activeAudioItem.url, speed)}
+              onClick={() => togglePreviewWithSpeedAndPitch(activeAudioItem.url, speed, 50)}
               className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center justify-center gap-1.5 transition font-medium"
             >
               {isPlayingPreview ? <Pause size={13} /> : <Play size={13} />}
@@ -267,9 +315,10 @@ export const Inspector: React.FC<InspectorProps> = ({
     );
   }
 
-  // 3. CẤU HÌNH VOICE TTS
+  // 3. CẤU HÌNH VOICE TTS (CÓ THANH CHỈNH SPEED + THANH CHỈNH PITCH GỐC 50%)
   if (activeVoiceItem) {
     const speed = activeVoiceItem.speed || 1.0;
+    const pitch = activeVoiceItem.pitch ?? 50;
 
     const handleVoiceSpeedChange = (newSpeed: number) => {
       if (!onUpdateVoiceItem) return;
@@ -280,9 +329,13 @@ export const Inspector: React.FC<InspectorProps> = ({
         duration: newDuration,
         originalDuration: original
       });
-      if (audioPreviewRef.current) {
-        audioPreviewRef.current.playbackRate = newSpeed;
-      }
+    };
+
+    const handleVoicePitchChange = (newPitch: number) => {
+      if (!onUpdateVoiceItem) return;
+      onUpdateVoiceItem(activeVoiceItem.id, {
+        pitch: newPitch
+      });
     };
 
     return (
@@ -299,14 +352,15 @@ export const Inspector: React.FC<InspectorProps> = ({
             <span className="text-[11px] text-slate-400 block font-medium">Lời thoại:</span>
             <p className="text-slate-200 font-semibold italic text-xs">"{activeVoiceItem.name}"</p>
             <button
-              onClick={() => togglePreviewWithSpeed(activeVoiceItem.url, speed)}
+              onClick={() => togglePreviewWithSpeedAndPitch(activeVoiceItem.url, speed, pitch)}
               className="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center justify-center gap-1.5 transition font-medium"
             >
               {isPlayingPreview ? <Pause size={13} /> : <Play size={13} />}
-              <span>{isPlayingPreview ? "Dừng" : `Nghe thử (${speed}x)`}</span>
+              <span>{isPlayingPreview ? "Dừng" : `Nghe thử (${speed}x | Pitch ${pitch}%)`}</span>
             </button>
           </div>
 
+          {/* THANH CHỈNH TỐC ĐỘ ĐỌC (SPEED) */}
           <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
             <div className="flex items-center justify-between text-slate-300">
               <span className="font-semibold flex items-center gap-1.5">
@@ -344,6 +398,54 @@ export const Inspector: React.FC<InspectorProps> = ({
                   }`}
                 >
                   {lvl}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* THANH CHỈNH CAO ĐỘ GIỌNG (PITCH - GỐC 50%) */}
+          <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Activity size={14} className="text-amber-400" /> Độ cao giọng (Pitch)
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-amber-400 font-bold text-xs">{pitch}%</span>
+                <button
+                  onClick={() => handleVoicePitchChange(50)}
+                  title="Đặt lại 50% (Giọng gốc)"
+                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-white rounded transition"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </div>
+            </div>
+
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={pitch}
+              onChange={(e) => handleVoicePitchChange(Number(e.target.value))}
+              className="w-full accent-amber-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+            />
+
+            <div className="grid grid-cols-4 gap-1 pt-1">
+              {[
+                { val: 25, label: "25% Trầm" },
+                { val: 50, label: "50% Gốc" },
+                { val: 75, label: "75% Thanh" },
+                { val: 90, label: "90% Cute" },
+              ].map((preset) => (
+                <button
+                  key={preset.val}
+                  onClick={() => handleVoicePitchChange(preset.val)}
+                  className={`py-1 rounded text-[10px] font-mono border transition ${
+                    pitch === preset.val ? "bg-amber-600/30 border-amber-500 text-amber-300 font-bold" : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {preset.label}
                 </button>
               ))}
             </div>
