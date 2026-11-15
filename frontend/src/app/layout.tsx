@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi">
+    <html lang="vi" translate="no" className="notranslate">
       <body className="antialiased selection:bg-rose-500 selection:text-white">{children}</body>
     </html>
   );

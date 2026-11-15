@@ -320,10 +320,18 @@ export const Inspector: React.FC<InspectorProps> = ({
     const speed = activeVoiceItem.speed || 1.0;
     const pitch = activeVoiceItem.pitch ?? 50;
 
+    const calcRealVoiceDuration = (origDur: number, spd: number, pitchPct: number) => {
+      const semitones = ((pitchPct - 50) / 50) * 6;
+      const pitchRatio = Math.pow(2, semitones / 12);
+      const effectiveRate = Math.max(0.4, Math.min(3.0, spd * pitchRatio));
+      return Number((origDur / effectiveRate).toFixed(2));
+    };
+
     const handleVoiceSpeedChange = (newSpeed: number) => {
       if (!onUpdateVoiceItem) return;
       const original = activeVoiceItem.originalDuration || activeVoiceItem.maxDuration || activeVoiceItem.duration;
-      const newDuration = Number((original / newSpeed).toFixed(2));
+      const currentPitch = activeVoiceItem.pitch ?? 50;
+      const newDuration = calcRealVoiceDuration(original, newSpeed, currentPitch);
       onUpdateVoiceItem(activeVoiceItem.id, {
         speed: newSpeed,
         duration: newDuration,
@@ -333,8 +341,13 @@ export const Inspector: React.FC<InspectorProps> = ({
 
     const handleVoicePitchChange = (newPitch: number) => {
       if (!onUpdateVoiceItem) return;
+      const original = activeVoiceItem.originalDuration || activeVoiceItem.maxDuration || activeVoiceItem.duration;
+      const currentSpeed = activeVoiceItem.speed || 1.0;
+      const newDuration = calcRealVoiceDuration(original, currentSpeed, newPitch);
       onUpdateVoiceItem(activeVoiceItem.id, {
-        pitch: newPitch
+        pitch: newPitch,
+        duration: newDuration,
+        originalDuration: original
       });
     };
 

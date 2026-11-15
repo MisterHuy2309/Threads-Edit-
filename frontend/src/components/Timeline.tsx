@@ -508,7 +508,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       const targetOffset = (elapsedInTrack * speed) + track.trimStart;
 
       el.volume = Math.max(0, Math.min(1, track.vol));
-      el.preservesPitch = !track.hasPitch; (el as any).webkitPreservesPitch = !track.hasPitch; if (Math.abs(el.playbackRate - speed) > 0.01) el.playbackRate = speed;
+      el.preservesPitch = !track.hasPitch; (el as any).mozPreservesPitch = !track.hasPitch; (el as any).webkitPreservesPitch = !track.hasPitch; if (Math.abs(el.playbackRate - speed) > 0.01) el.playbackRate = speed;
 
       if (isPlaying && isInside) {
         const maxDur = el.duration && !isNaN(el.duration) ? el.duration : 999999;
@@ -613,7 +613,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           return { newStart, newTrim, newDur };
         };
 
-        if (dragAction.target === "meme_img" && setMemeImageList) {
+                if (dragAction.target === "meme_img" && setMemeImageList) {
           const shouldRipple = rippleTracks.meme;
           const oldEnd = dragAction.initialStart + dragAction.initialDuration;
 
@@ -621,34 +621,45 @@ export const Timeline: React.FC<TimelineProps> = ({
             const currentItem = prev.find((m) => m.id === dragAction.id);
             if (!currentItem) return prev;
 
-            let updatedStart = currentItem.startTime;
-            let updatedDur = currentItem.duration;
+            const isVid = currentItem.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(currentItem.url);
+            // Nếu block đã lỡ bị kéo lố lên 21.49s trước đó, lấy lại maxDuration chuẩn của video
+            const maxOrig = isVid ? (currentItem.maxDuration || dragAction.maxOriginalDuration || currentItem.duration) : 999999;
 
-            let updatedTrim = currentItem.trimStart || 0;
+            let updatedStart = dragAction.initialStart;
+            let updatedDur = dragAction.initialDuration;
+            let updatedTrim = dragAction.initialTrimStart || 0;
+
             if (dragAction.type === "move") {
               const rawMoved = Math.max(0, Number((dragAction.initialStart + deltaSeconds).toFixed(2)));
               updatedStart = applyMagneticSnap(rawMoved, 0.25);
+              updatedDur = dragAction.initialDuration;
+              updatedTrim = dragAction.initialTrimStart || 0;
             } else if (dragAction.type === "resize-right") {
-              const maxAllowed = Math.max(0.3, dragAction.maxOriginalDuration - updatedTrim);
-              updatedDur = Math.max(0.3, Math.min(maxAllowed, Number((dragAction.initialDuration + deltaSeconds).toFixed(2))));
-            } else if (dragAction.type === "resize-left") {
-              if (dragAction.maxOriginalDuration < 900000) {
-                const { newStart, newTrim, newDur } = calcResizeLeft(
-                  dragAction.initialStart,
-                  dragAction.initialTrimStart,
-                  dragAction.initialDuration,
-                  dragAction.maxOriginalDuration,
-                  deltaSeconds,
-                  1.0
-                );
-                updatedStart = newStart;
-                updatedTrim = newTrim;
-                updatedDur = newDur;
+              const rawNewDur = Number((dragAction.initialDuration + deltaSeconds).toFixed(2));
+              if (isVid) {
+                const maxAllowedDur = Math.max(0.2, maxOrig - updatedTrim);
+                updatedDur = Number(Math.max(0.2, Math.min(maxAllowedDur, rawNewDur)).toFixed(2));
               } else {
-                const rawStart = dragAction.initialStart + deltaSeconds;
-                const diff = rawStart - dragAction.initialStart;
-                updatedStart = Math.max(0, Number(rawStart.toFixed(2)));
-                updatedDur = Math.max(0.3, Number((dragAction.initialDuration - diff).toFixed(2)));
+                updatedDur = Number(Math.max(0.2, rawNewDur).toFixed(2));
+              }
+            } else if (dragAction.type === "resize-left") {
+              if (isVid) {
+                // Kéo sang phải (deltaSeconds > 0): Cắt ngắn đầu video, tối đa đến khi còn 0.2s
+                const maxCutRight = Math.max(0, dragAction.initialDuration - 0.2);
+                // Kéo sang trái (deltaSeconds < 0): Chỉ được mở rộng lại phần đã cắt (initialTrimStart), KHÔNG vượt quá độ dài gốc!
+                const maxExtendLeft = Math.min(dragAction.initialStart, dragAction.initialTrimStart || 0);
+                const clampedDelta = Math.max(-maxExtendLeft, Math.min(maxCutRight, deltaSeconds));
+
+                updatedStart = Number(Math.max(0, dragAction.initialStart + clampedDelta).toFixed(2));
+                updatedTrim = Number(Math.max(0, (dragAction.initialTrimStart || 0) + clampedDelta).toFixed(2));
+                updatedDur = Number(Math.max(0.2, dragAction.initialDuration - clampedDelta).toFixed(2));
+              } else {
+                // Ảnh tĩnh: cho phép co giãn tự do nhưng giữ nguyên mép phải
+                const maxCutRight = Math.max(0, dragAction.initialDuration - 0.2);
+                const maxExtendLeft = dragAction.initialStart;
+                const clampedDelta = Math.max(-maxExtendLeft, Math.min(maxCutRight, deltaSeconds));
+                updatedStart = Number(Math.max(0, dragAction.initialStart + clampedDelta).toFixed(2));
+                updatedDur = Number(Math.max(0.2, dragAction.initialDuration - clampedDelta).toFixed(2));
               }
             }
 
@@ -735,7 +746,9 @@ export const Timeline: React.FC<TimelineProps> = ({
           setVoiceList((prev) =>
             prev.map((v) => {
               if (v.id !== dragAction.id) return v;
-              const speed = v.speed || 1.0;
+              const pPct = v.pitch ?? 50;
+              const pRatio = Math.pow(2, (((pPct - 50) / 50) * 6) / 12);
+              const speed = (v.speed || 1.0) * pRatio;
               if (dragAction.type === "move") {
                 return { ...v, startTime: snapVoice };
               }
@@ -1070,10 +1083,11 @@ export const Timeline: React.FC<TimelineProps> = ({
             </div>
 
             <div style={{ width: `${totalDuration * pixelsPerSec + 200}px` }} className="h-12 border-b border-slate-800/60 relative flex items-center px-1 bg-pink-950/10">
-              {memeImageList.map((meme) => {
+                            {memeImageList.map((meme) => {
                 const isSelected = selectedIds.includes(meme.id);
                 const isGrouped = !!meme.groupId;
                 const isVid = meme.type === "video" || /\.(mp4|mov|webm|mkv)(\?.*)?$/i.test(meme.url);
+                const maxOrigDur = isVid ? (meme.maxDuration || meme.duration) : 999999;
                 return (
                   <div
                     key={meme.id}
@@ -1082,24 +1096,77 @@ export const Timeline: React.FC<TimelineProps> = ({
                       e.stopPropagation();
                       handleSelectBlock(meme.id, e, "meme");
                       setDragAction({
-                        target: "meme_img", type: "move", id: meme.id, startX: e.clientX,
-                        initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: 0,
-                        maxOriginalDuration: 999999
+                        target: "meme_img",
+                        type: "move",
+                        id: meme.id,
+                        startX: e.clientX,
+                        initialStart: meme.startTime,
+                        initialDuration: meme.duration,
+                        initialTrimStart: meme.trimStart || 0,
+                        maxOriginalDuration: maxOrigDur
                       });
                     }}
                     style={{ left: `${meme.startTime * pixelsPerSec}px`, width: `${meme.duration * pixelsPerSec}px` }}
-                    className={`absolute h-9 rounded-md p-1 flex items-center shadow border transition cursor-grab active:cursor-grabbing group ${
-                      isSelected ? "bg-pink-600/70 border-white ring-2 ring-white z-20" : isGrouped ? "bg-pink-600/40 border-pink-300 ring-1 ring-pink-400/60 z-15" : "bg-pink-600/30 border-pink-400 hover:border-pink-300 z-10"
+                    className={`absolute h-9 rounded-md px-2.5 flex items-center shadow border transition cursor-grab active:cursor-grabbing group overflow-hidden ${
+                      isSelected ? "bg-pink-600/75 border-white ring-2 ring-white z-20" : isGrouped ? "bg-pink-600/40 border-pink-300 ring-1 ring-pink-400/60 z-15" : "bg-pink-600/30 border-pink-400 hover:border-pink-300 z-10"
                     }`}
                   >
-                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-left", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: b.trimStart || 0, maxOriginalDuration: 999999 }); }} className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-l-md transition-all opacity-0 group-hover:opacity-100" />
+                    {/* THANH KÉO CẮT ĐẦU TRÁI (RESIZE-LEFT) */}
+                    <div
+                      title="Kéo sang phải để cắt đầu video"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleSelectBlock(meme.id, e, "meme");
+                        setDragAction({
+                          target: "meme_img",
+                          type: "resize-left",
+                          id: meme.id,
+                          startX: e.clientX,
+                          initialStart: meme.startTime,
+                          initialDuration: meme.duration,
+                          initialTrimStart: meme.trimStart || 0,
+                          maxOriginalDuration: maxOrigDur
+                        });
+                      }}
+                      className="absolute left-0 top-0 bottom-0 w-3 bg-white/90 hover:bg-amber-300 cursor-ew-resize rounded-l-md z-40 flex items-center justify-center transition-all opacity-80 group-hover:opacity-100 shadow"
+                    >
+                      <div className="w-[1.5px] h-4 bg-pink-900 rounded-full pointer-events-none" />
+                    </div>
+
                     {isVid ? (
-                      <video src={meme.url} className="h-full w-7 object-cover rounded pointer-events-none mr-1" />
+                      <video src={meme.url} className="h-7 w-7 object-cover rounded pointer-events-none mr-1.5 ml-1 shrink-0" />
                     ) : (
-                      <img src={meme.url} alt="meme" className="h-full w-7 object-contain rounded pointer-events-none mr-1" />
+                      <img src={meme.url} alt="meme" className="h-7 w-7 object-contain rounded pointer-events-none mr-1.5 ml-1 shrink-0" />
                     )}
-                    <span className="text-[10px] text-pink-200 truncate font-semibold pointer-events-none">{meme.duration}s {isGrouped && "🔗"}</span>
-                    <div onMouseDown={(e) => { e.stopPropagation(); setDragAction({ target: "meme_img", type: "resize-right", id: meme.id, startX: e.clientX, initialStart: meme.startTime, initialDuration: meme.duration, initialTrimStart: b.trimStart || 0, maxOriginalDuration: 999999 }); }} className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-pink-400/80 hover:bg-pink-300 cursor-ew-resize rounded-r-md transition-all opacity-0 group-hover:opacity-100" />
+                    <span className="text-[10px] text-pink-100 truncate font-semibold pointer-events-none select-none">
+                      {meme.duration}s {meme.trimStart ? `(cắt ${meme.trimStart}s)` : ""} {isGrouped && "🔗"}
+                    </span>
+
+                    {/* THANH KÉO CẮT ĐẦU PHẢI (RESIZE-RIGHT) */}
+                    <div
+                      title="Kéo sang trái để cắt đuôi video"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleSelectBlock(meme.id, e, "meme");
+                        setDragAction({
+                          target: "meme_img",
+                          type: "resize-right",
+                          id: meme.id,
+                          startX: e.clientX,
+                          initialStart: meme.startTime,
+                          initialDuration: meme.duration,
+                          initialTrimStart: meme.trimStart || 0,
+                          maxOriginalDuration: maxOrigDur
+                        });
+                      }}
+                      className="absolute right-0 top-0 bottom-0 w-3 bg-white/90 hover:bg-amber-300 cursor-ew-resize rounded-r-md z-40 flex items-center justify-center transition-all opacity-80 group-hover:opacity-100 shadow"
+                    >
+                      <div className="w-[1.5px] h-4 bg-pink-900 rounded-full pointer-events-none" />
+                    </div>
                   </div>
                 );
               })}

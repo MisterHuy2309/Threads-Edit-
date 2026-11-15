@@ -185,7 +185,7 @@ def resolve_local_path(url_or_path: Optional[str]) -> str:
     if not url_or_path:
         return ""
     decoded = urllib.parse.unquote(url_or_path)
-    clean = decoded.split("?")[0]
+    clean = decoded.split("?")[0].replace(chr(92), "/")
     if os.path.isabs(clean) and os.path.exists(clean):
         return os.path.normpath(clean)
 
@@ -194,18 +194,20 @@ def resolve_local_path(url_or_path: Optional[str]) -> str:
             clean = clean[len(domain):]
             break
 
-    clean = clean.lstrip("/").lstrip("\\")
-    candidate = os.path.normpath(os.path.join(BASE_DIR, clean))
+    clean_rel = clean.lstrip("/")
+    candidate = os.path.normpath(os.path.join(BASE_DIR, clean_rel))
     if os.path.exists(candidate):
         return candidate
 
-    pub_candidate = os.path.normpath(os.path.join(ROOT_DIR, "frontend", "public", clean))
+    pub_candidate = os.path.normpath(os.path.join(ROOT_DIR, "frontend", "public", clean_rel))
     if os.path.exists(pub_candidate):
         return pub_candidate
 
-    filename_only = os.path.basename(clean)
+    filename_only = os.path.basename(clean_rel)
     media_root = os.path.join(BASE_DIR, "media")
-    for root, _, files in os.walk(media_root):
+    for root, dirs, files in os.walk(media_root):
+        if "audio_cache" in dirs:
+            dirs.remove("audio_cache")
         if filename_only in files:
             return os.path.normpath(os.path.join(root, filename_only))
 
@@ -284,36 +286,74 @@ def extract_bg_segment_ffmpeg(
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     return seg_out
 
-def prepare_normalized_audio(src_path: str, job_id: str, idx: int, speed: float = 1.0, pitch_pct: float = 50.0) -> str:
+def prepare_normalized_audio(
+    src_path: str,
+    job_id: str,
+    idx: int,
+    speed: float = 1.0,
+    pitch_pct: float = 50.0,
+    trim_start: float = 0.0,
+    target_duration: Optional[float] = None
+) -> str:
     norm_wav = os.path.join(TEMP_DIR, f"{job_id}_aud_{idx}.wav")
-    spd = speed if (speed and speed > 0.1) else 1.0
+    spd = float(speed) if (speed and speed > 0.1) else 1.0
     p_val = 50.0 if pitch_pct is None else float(pitch_pct)
-    
+    t_start = max(0.0, float(trim_start or 0.0))
+
+    # Công thức giống hệt 100% trên Inspector.tsx và Timeline.tsx:
     semitones = ((p_val - 50.0) / 50.0) * 6.0
-    pitch_scale = 2 ** (semitones / 12.0)
+    pitch_ratio = 2.0 ** (semitones / 12.0)
 
-    filters = []
-    if abs(semitones) >= 0.02:
-        new_sr = int(44100 * pitch_scale)
-        filters.append(f"asetrate={new_sr},aresample=44100")
-    
-    total_tempo = spd * pitch_scale
-    if abs(total_tempo - 1.0) >= 0.01:
-        rem = total_tempo
-        while rem < 0.5:
-            filters.append("atempo=0.5")
-            rem /= 0.5
-        while rem > 2.0:
-            filters.append("atempo=2.0")
-            rem /= 2.0
-        filters.append(f"atempo={round(rem, 4)}")
+    # BẮT BUỘC: Ép luồng âm thanh về đúng chuẩn 44100Hz bằng aformat trước khi dùng asetrate!
+    # (Nếu chỉ dùng aresample=44100 mà không có aformat, file TTS 24000Hz khi gặp asetrate=44100*R sẽ bị tăng tốc gấp 44100/24000 = 1.8375 lần!)
+    filters = ["aresample=44100", "aformat=sample_rates=44100:channel_layouts=stereo"]
 
-    if filters:
-        af = ",".join(filters)
-        cmd = ["ffmpeg", "-y", "-i", src_path, "-af", af, "-ar", "44100", "-ac", "2", norm_wav]
+    # 1. Cắt phần đầu bị gọt (trimStart) trên thời gian gốc của file
+    if t_start > 0.005:
+        filters.append(f"atrim=start={t_start:.4f}")
+        filters.append("asetpts=PTS-STARTPTS")
+
+    # 2. Kiểm tra xem người dùng có chỉnh Pitch khác 50% hay không:
+    # - Trên trình duyệt (Timeline.tsx dòng 386 & Inspector.tsx dòng 61):
+    #   Khi chỉnh Pitch (hoặc nghe thử trong Inspector), trình duyệt đặt:
+    #   el.preservesPitch = false;
+    #   el.playbackRate = speed * pitchRatio;
+    #   Khi preservesPitch = false, trình duyệt tăng tốc độ đọc mẫu (sample rate) lên (speed * pitchRatio) lần
+    #   (tức là cả Tốc độ lẫn Độ cao giọng đều nhân theo hệ số R = spd * pitch_ratio, KHÔNG dùng atempo!).
+    # - Nếu Pitch == 50% (không đổi pitch): trên Timeline.tsx đặt preservesPitch = true, chỉ đổi tốc độ bằng atempo.
+    if abs(p_val - 50.0) >= 0.1:
+        effective_rate = max(0.4, min(3.0, spd * pitch_ratio))
+        new_sr = int(round(44100.0 * effective_rate))
+        filters.append(f"asetrate={new_sr}")
+        filters.append("aresample=44100")
+        filters.append("aformat=sample_rates=44100:channel_layouts=stereo")
+        filters.append("asetpts=PTS-STARTPTS")
     else:
-        cmd = ["ffmpeg", "-y", "-i", src_path, "-ar", "44100", "-ac", "2", norm_wav]
+        if abs(spd - 1.0) >= 0.01:
+            rem = spd
+            while rem < 0.5:
+                filters.append("atempo=0.5")
+                rem /= 0.5
+            while rem > 2.0:
+                filters.append("atempo=2.0")
+                rem /= 2.0
+            filters.append(f"atempo={rem:.4f}")
 
+    # 3. Cắt đúng thời lượng hiển thị của block trên Timeline
+    if target_duration is not None and target_duration > 0.05:
+        filters.append(f"atrim=start=0:duration={float(target_duration):.4f}")
+        filters.append("asetpts=PTS-STARTPTS")
+
+    af = ",".join(filters)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", src_path,
+        "-vn",
+        "-af", af,
+        "-ar", "44100", "-ac", "2",
+        norm_wav
+    ]
+    print(f"[Audio Render Fix] File={os.path.basename(src_path)} | Speed={spd} | Pitch={p_val}% | Filter={af}")
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     return norm_wav
 
@@ -457,15 +497,22 @@ def run_render_task(job_id: str, req: ExportRequest):
                         break
 
                 p_pct = a.pitch if a.pitch is not None else 50.0
-                norm_wav = prepare_normalized_audio(a_p, job_id, f"track_{aud_counter}", speed=spd, pitch_pct=p_pct)
+                norm_wav = prepare_normalized_audio(
+                    src_path=a_p,
+                    job_id=job_id,
+                    idx=f"track_{aud_counter}",
+                    speed=spd,
+                    pitch_pct=p_pct,
+                    trim_start=tr_start,
+                    target_duration=a.duration
+                )
                 aud_counter += 1
                 a_clip = AudioFileClip(norm_wav, fps=44100)
                 opened_clips.append(a_clip)
 
-                t_start = max(0.0, tr_start)
-                t_end = min(a_clip.duration, t_start + a.duration)
-                if t_end > t_start:
-                    a_sub = a_clip.subclip(t_start, t_end).set_start(st_time)
+                t_end = min(a_clip.duration, max(0.05, float(a.duration)))
+                if t_end > 0.05:
+                    a_sub = a_clip.subclip(0, t_end).set_start(st_time)
                     vol_ratio = (a.volume if a.volume is not None else 100.0) / 100.0
                     a_sub = a_sub.volumex(vol_ratio)
                     audio_clips.append(a_sub)

@@ -19,3 +19,10 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(6, 182, 212, 0.8);
 }
+
+
+/* CHẶN VUỐT 2 NGÓN TOUCHPAD BACK/FORWARD TRANG WEB */
+html, body {
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: none !important;
+}
