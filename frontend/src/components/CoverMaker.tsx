@@ -1,46 +1,23 @@
 ﻿"use client";
 
 import React, { useState, useRef } from "react";
-import { ArrowLeft, Download, Sparkles, Type, Hash, Heart, MessageCircle, Send, Bookmark } from "lucide-react";
+import { CheckCircle2, Download, Save } from "lucide-react";
 
 interface CoverMakerProps {
   onBack: () => void;
+  onCoverSaved?: (coverUrl: string) => void;
 }
 
-export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
+export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack, onCoverSaved }) => {
+  const API_BASE = "http://localhost:8000";
   const coverRef = useRef<HTMLDivElement | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<"M1" | "M2" | "M3">("M2");
-  const coverPreviewRef = useRef<HTMLDivElement>(null);
-    const handleExportCover = typeof handleExport !== "undefined" ? handleExport : async () => {
-    alert("Chức năng tải ảnh cover!");
-  };
-
   const [isExporting, setIsExporting] = useState(false);
-
-  const [m1Title, setM1Title] = useState("TIÊU ĐỀ NÓNG HỔI TRÊN THREADS!");
-  
-  const [m2Author, setM2Author] = useState("soichibiettuot");
-  const [m2Content, setM2Content] = useState("CHUYỆN CHƯA KỂ VỀ DRAMA HÔM NAY...");
-  const [m2Likes, setM2Likes] = useState("1,133 likes");
-  const [m2Tag1, setM2Tag1] = useState("DRAMA");
-  const [m2Tag2, setM2Tag2] = useState("TÂM_SỰ");
+  const [savedSuccessMsg, setSavedSuccessMsg] = useState<string>("");
 
   const [m3MainTitle, setM3MainTitle] = useState("CÁI KẾT BẤT NGỜ...");
   const [m3SubTitle, setM3SubTitle] = useState("Có ai dám thử chưa?");
 
-  // Hỗ trợ tự động fallback tìm ảnh nếu tên file là .jpg hay .png
-  const mascotCandidatesM1 = [
-    "http://localhost:8000/media/mascots/mascot_m1.png",
-    "http://localhost:8000/media/mascots/mascot_m1.jpg",
-    "http://localhost:8000/media/meme_images/mascot_m1.png",
-    "/mascot_m1.png"
-  ];
-  const mascotCandidatesM2 = [
-    "http://localhost:8000/media/mascots/mascot_m2.png",
-    "http://localhost:8000/media/mascots/mascot_m2.jpg",
-    "http://localhost:8000/media/meme_images/mascot_m2.png",
-    "/mascot_m2.png"
-  ];
   const mascotCandidatesM3 = [
     "http://localhost:8000/media/mascots/mascot_m3.png",
     "http://localhost:8000/media/mascots/mascot_m3.jpg",
@@ -56,88 +33,168 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
       target.setAttribute("data-try-idx", String(nextIdx));
       target.src = candidates[nextIdx];
     } else {
-      // Nếu không tìm thấy file nào trên ổ đĩa, tạo hình chú khủng long placeholder SVG
-      target.src = "data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 200 200\'><circle cx=\'100\' cy=\'100\' r=\'95\' fill=\'%2322c55e\'/><circle cx=\'70\' cy=\'80\' r=\'12\' fill=\'%23000\'/><circle cx=\'130\' cy=\'80\' r=\'12\' fill=\'%23000\'/><path d=\'M60 120 Q100 160 140 120\' stroke=\'%23000\' stroke-width=\'8\' fill=\'%23ef4444\'/></svg>";
+      target.src =
+        "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='95' fill='%2322c55e'/><circle cx='70' cy='80' r='12' fill='%23000'/><circle cx='130' cy='80' r='12' fill='%23000'/><path d='M60 120 Q100 160 140 120' stroke='%23000' stroke-width='8' fill='%23ef4444'/></svg>";
     }
   };
 
-  const loadHtml2CanvasScript = (): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      if ((window as any).html2canvas) {
-        return resolve((window as any).html2canvas);
+  // Hàm vẽ Canvas 1080x1920 trực tiếp đảm bảo 100% không bao giờ lỗi CORS hay html2canvas
+  const renderCoverToDataUrl = async (): Promise<string> => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Không khởi tạo được Canvas 2D");
+
+    // 1. Vẽ nền theo đúng mẫu M1, M2, M3
+    if (selectedTemplate === "M1") {
+      const grad = ctx.createLinearGradient(0, 0, 0, 1920);
+      grad.addColorStop(0, "#f97316");
+      grad.addColorStop(0.5, "#e11d48");
+      grad.addColorStop(1, "#020617");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1080, 1920);
+    } else if (selectedTemplate === "M2") {
+      ctx.fillStyle = "#121316";
+      ctx.fillRect(0, 0, 1080, 1920);
+      ctx.strokeStyle = "#1e293b";
+      ctx.lineWidth = 12;
+      ctx.strokeRect(6, 6, 1068, 1908);
+    } else {
+      const grad = ctx.createLinearGradient(0, 0, 0, 1920);
+      grad.addColorStop(0, "#fed7aa");
+      grad.addColorStop(0.5, "#fde047");
+      grad.addColorStop(1, "#fdba74");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1080, 1920);
+    }
+
+    // 2. Vẽ Tiêu Đề Chính (Tự động xuống dòng chuẩn 9:16)
+    ctx.save();
+    ctx.font = "900 76px Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = selectedTemplate === "M1" ? "#ffffff" : selectedTemplate === "M2" ? "#34d399" : "#090d16";
+
+    const words = (m3MainTitle || "").toUpperCase().split(/\s+/);
+    const lines: string[] = [];
+    let curLine = "";
+    for (const w of words) {
+      const testLine = curLine ? `${curLine} ${w}` : w;
+      if (ctx.measureText(testLine).width > 920 && curLine) {
+        lines.push(curLine);
+        curLine = w;
+      } else {
+        curLine = testLine;
       }
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-      script.onload = () => resolve((window as any).html2canvas);
-      script.onerror = () => reject(new Error("Lỗi tải thư viện xuất ảnh"));
-      document.body.appendChild(script);
-    });
-  };
-
-  const convertImgToBase64 = async (url: string): Promise<string> => {
-    try {
-      const res = await fetch(url + (url.includes("?") ? "&" : "?") + "v=" + Date.now());
-      const blob = await res.blob();
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => resolve(url);
-        reader.readAsDataURL(blob);
-      });
-    } catch {
-      return url;
     }
+    if (curLine) lines.push(curLine);
+
+    let yPos = 190;
+    for (const line of lines.slice(0, 5)) {
+      ctx.fillText(line, 540, yPos);
+      yPos += 96;
+    }
+    ctx.restore();
+
+    // 3. Vẽ Vòng tròn Mascot ở trung tâm
+    const centerX = 540;
+    const centerY = 980;
+    const radius = 270;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fillStyle = selectedTemplate === "M2" ? "#0f172a" : "rgba(255,255,255,0.35)";
+    ctx.fill();
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = selectedTemplate === "M2" ? "#10b981" : "#ffffff";
+    ctx.stroke();
+    ctx.clip();
+
+    const imgEl = coverRef.current?.querySelector("img") as HTMLImageElement | null;
+    if (imgEl) {
+      try {
+        const proxyImg = new Image();
+        proxyImg.crossOrigin = "anonymous";
+        await new Promise<void>((resolve) => {
+          proxyImg.onload = () => resolve();
+          proxyImg.onerror = () => resolve();
+          proxyImg.src = imgEl.src;
+        });
+        if (proxyImg.width > 0) {
+          ctx.drawImage(proxyImg, centerX - radius, centerY - radius, radius * 2, radius * 2);
+        }
+      } catch {}
+    }
+    ctx.restore();
+
+    // 4. Vẽ Khung Tiêu Đề Phụ phía dưới
+    const subText = m3SubTitle || "";
+    ctx.save();
+    const boxW = 860;
+    const boxH = 120;
+    const boxX = (1080 - boxW) / 2;
+    const boxY = 1580;
+
+    ctx.fillStyle = selectedTemplate === "M2" ? "#0f172a" : "#ffffff";
+    ctx.strokeStyle = selectedTemplate === "M2" ? "#10b981" : "#f97316";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 32);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = "800 44px Arial, sans-serif";
+    ctx.fillStyle = selectedTemplate === "M2" ? "#6ee7b7" : "#0f172a";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(subText, 540, boxY + boxH / 2);
+    ctx.restore();
+
+    return canvas.toDataURL("image/png", 1.0);
   };
 
-  const handleDownloadCover = async () => {
-    if (!coverPreviewRef.current || isExporting) return;
+  const handleSaveAndDownloadCover = async (downloadToPc: boolean = true) => {
+    if (isExporting) return;
     setIsExporting(true);
+    setSavedSuccessMsg("");
     try {
-      const html2canvas = await loadHtml2CanvasScript();
-      if (!html2canvas) {
-        alert("Chưa nạp được trình xuất ảnh!");
-        return;
-      }
+      const dataUrl = await renderCoverToDataUrl();
 
-      const imgs = coverPreviewRef.current.querySelectorAll("img");
-      const originalSrcs: string[] = [];
-      for (let i = 0; i < imgs.length; i++) {
-        const img = imgs[i];
-        originalSrcs.push(img.src);
-        if (img.src && !img.src.startsWith("data:")) {
-          const b64 = await convertImgToBase64(img.src);
-          img.src = b64;
-        }
-      }
-
-      const canvas = await html2canvas(coverPreviewRef.current, {
-        scale: 3.375,
-        useCORS: true,
-        backgroundColor: "#101217",
-        logging: false,
+      // 1. Lưu lên Backend vào media/covers/latest_cover.png để sẵn sàng gắn vào bài Facebook
+      const res = await fetch(`${API_BASE}/api/facebook/save-cover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_base64: dataUrl,
+          template: selectedTemplate,
+          title: m3MainTitle,
+        }),
       });
-
-      for (let i = 0; i < imgs.length; i++) {
-        imgs[i].src = originalSrcs[i];
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Lỗi lưu ảnh bìa lên server");
       }
 
-      canvas.toBlob((blob: Blob | null) => {
-        if (!blob) {
-          alert("Lỗi tạo ảnh PNG!");
-          return;
-        }
-        const fileUrl = URL.createObjectURL(blob);
+      if (onCoverSaved && data.latest_cover_url) {
+        onCoverSaved(data.latest_cover_url);
+      }
+      localStorage.setItem("threads_latest_cover_url", data.latest_cover_url || data.cover_url);
+
+      // 2. Tải file PNG về máy tính nếu người dùng bấm Tải & Lưu
+      if (downloadToPc) {
         const link = document.createElement("a");
-        link.download = `cover_threads_${selectedTemplate}_${Date.now()}.png`;
-        link.href = fileUrl;
+        link.download = data.filename || `cover_threads_${selectedTemplate}_${Date.now()}.png`;
+        link.href = dataUrl;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(fileUrl), 2000);
-      }, "image/png", 1.0);
+      }
 
+      setSavedSuccessMsg("Đã lưu ảnh bìa vào hệ thống & tải về máy thành công!");
     } catch (err: any) {
-      alert("Lỗi xuất ảnh: " + (err?.message || err));
+      alert("Lỗi khi lưu ảnh bìa: " + (err?.message || err));
     } finally {
       setIsExporting(false);
     }
@@ -155,6 +212,11 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
             ← Quay Lại Editor
           </button>
           <span className="text-sm font-bold text-slate-100">Cover Maker Studio (9:16)</span>
+          {savedSuccessMsg && (
+            <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1 bg-emerald-950/60 border border-emerald-500/40 px-2.5 py-1 rounded-full">
+              <CheckCircle2 size={13} /> {savedSuccessMsg}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -175,11 +237,21 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
           </div>
 
           <button
-            onClick={handleExportCover}
+            onClick={() => handleSaveAndDownloadCover(false)}
+            disabled={isExporting}
+            className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-bold text-xs transition shadow flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Save size={14} />
+            {isExporting ? "Đang Lưu..." : "Lưu Làm Ảnh Bìa FB"}
+          </button>
+
+          <button
+            onClick={() => handleSaveAndDownloadCover(true)}
             disabled={isExporting}
             className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs transition shadow flex items-center gap-1.5 disabled:opacity-50"
           >
-            {isExporting ? "Đang Xuất Ảnh..." : "Tải Ảnh Cover"}
+            <Download size={14} />
+            {isExporting ? "Đang Xuất Ảnh..." : "Tải Về & Lưu Ảnh Cover"}
           </button>
         </div>
       </div>
@@ -208,6 +280,11 @@ export const CoverMaker: React.FC<CoverMakerProps> = ({ onBack }) => {
               className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-rose-500 font-semibold"
               placeholder="Nhập tiêu đề phụ..."
             />
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400 space-y-1.5 leading-relaxed">
+            <p className="text-amber-300 font-bold">💡 Cơ chế đồng bộ tự động:</p>
+            <p>Khi bạn bấm <b>"Tải Về & Lưu Ảnh Cover"</b> hoặc <b>"Lưu Làm Ảnh Bìa FB"</b>, ảnh bìa sẽ vừa tải xuống máy vừa tự động gắn làm ảnh bìa mặc định trong Form duyệt đăng Facebook sau khi Render.</p>
           </div>
         </div>
 

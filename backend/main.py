@@ -20,9 +20,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tts, topics, backgrounds, video, assets
+from routers import tts, topics, backgrounds, video, assets, facebook
 
-app = FastAPI(title="Threads Video Generator API", version="1.6.0")
+app = FastAPI(title="Threads Video Generator API", version="1.7.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,7 +35,7 @@ app.add_middleware(
 MEDIA_DIR = os.path.join(BASE_DIR, "media")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 
-for sub in ["backgrounds", "topics", "voices", "audio_cache", "bgm", "meme_audio", "meme_images", "progress_jobs", "mascots"]:
+for sub in ["backgrounds", "topics", "voices", "audio_cache", "bgm", "meme_audio", "meme_images", "progress_jobs", "mascots", "covers", "watermarks"]:
     os.makedirs(os.path.join(MEDIA_DIR, sub), exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -47,8 +47,8 @@ app.include_router(topics.router)
 app.include_router(backgrounds.router)
 app.include_router(video.router)
 app.include_router(assets.router)
+app.include_router(facebook.router)
 
 if __name__ == "__main__":
     import uvicorn
-    # Tắt reload=False để tránh server tự restart khi ghi file vào temp_render/media lúc đang render
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)

@@ -127,12 +127,87 @@ export default function CapCutThreadsStudio() {
   const [renderProgress, setRenderProgress] = useState<number>(0);
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
     const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
-  const [fbCaption, setFbCaption] = useState<string>("");
-  const [fbHashtags, setFbHashtags] = useState<string>("#threads #storytime #fyp #xuhuong");
-  const [fbPostType, setFbPostType] = useState<"reels" | "feed">("reels");
-  const [fbAutoSubmit, setFbAutoSubmit] = useState<boolean>(true);
+  const [fbTitle, setFbTitle] = useState<string>("");
+  const [fbBaseHashtags, setFbBaseHashtags] = useState<string>("#viral #ThreadsVietNam");
+  const [fbCustomHashtagInput, setFbCustomHashtagInput] = useState<string>("");
+  const [fbSelectedTags, setFbSelectedTags] = useState<string[]>([]);
+  const [savedCoverUrl, setSavedCoverUrl] = useState<string>("");
+  const [fbMode, setFbMode] = useState<"browser" | "graph_api">("browser");
+  const [fbPageId, setFbPageId] = useState<string>("");
+  const [fbAccessToken, setFbAccessToken] = useState<string>("");
+  const [showFbApiConfig, setShowFbApiConfig] = useState<boolean>(false);
   const [isPublishingFb, setIsPublishingFb] = useState<boolean>(false);
   const [fbPublishStatus, setFbPublishStatus] = useState<string>("");
+  const coverUploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  const presetHashtags = [
+    "#xuhuong",
+    "#fyp",
+    "#drama",
+    "#tam_su",
+    "#soichibiettuot",
+    "#chuyencongso",
+    "#reelsvn"
+  ];
+
+  // Nạp cấu hình FB & Ảnh bìa đã lưu từ trước
+  useEffect(() => {
+    const cachedCover = localStorage.getItem("threads_latest_cover_url");
+    if (cachedCover) setSavedCoverUrl(cachedCover);
+    fetch(`${API_BASE}/api/facebook/config`)
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg.latest_cover_url) setSavedCoverUrl(cfg.latest_cover_url);
+        if (cfg.mode) setFbMode(cfg.mode);
+        if (cfg.page_id) setFbPageId(cfg.page_id);
+        if (cfg.access_token) setFbAccessToken(cfg.access_token);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleToggleQuickHashtag = (tag: string) => {
+    const cleanTag = tag.startsWith("#") ? tag : `#${tag}`;
+    setFbSelectedTags((prev) =>
+      prev.includes(cleanTag) ? prev.filter((t) => t !== cleanTag) : [...prev, cleanTag]
+    );
+  };
+
+  const handleAddCustomHashtag = () => {
+    const raw = fbCustomHashtagInput.trim();
+    if (!raw) return;
+    const formatted = raw
+      .split(/\s+/)
+      .map((w) => (w.startsWith("#") ? w : `#${w}`))
+      .join(" ");
+    setFbSelectedTags((prev) => (prev.includes(formatted) ? prev : [...prev, formatted]));
+    setFbCustomHashtagInput("");
+  };
+
+  const combinedHashtags = [fbBaseHashtags.trim(), ...fbSelectedTags].filter(Boolean).join(" ");
+  const finalReelDescription = fbTitle.trim()
+    ? `${fbTitle.trim()}\n\n${combinedHashtags}`
+    : combinedHashtags;
+
+  const handleUploadCustomCoverInModal = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    const fd = new FormData();
+    fd.append("file", e.target.files[0]);
+    try {
+      const res = await fetch(`${API_BASE}/api/facebook/upload-custom-cover`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (data.latest_cover_url) {
+        setSavedCoverUrl(data.latest_cover_url);
+        localStorage.setItem("threads_latest_cover_url", data.latest_cover_url);
+      }
+    } catch {
+      alert("Lỗi tải ảnh bìa!");
+    } finally {
+      e.target.value = "";
+    }
+  };
 
   const handleOpenFbLogin = async () => {
     try {
@@ -147,17 +222,22 @@ export default function CapCutThreadsStudio() {
   const handleApproveAndPublishFb = async () => {
     if (!renderedUrl || isPublishingFb) return;
     setIsPublishingFb(true);
-    setFbPublishStatus("Đang khởi động trình duyệt & tải video lên Facebook...");
+    setFbPublishStatus("Đang thực thi lệnh Duyệt: tải Video + thay Ảnh bìa + điền Mô tả lên Facebook...");
     try {
       const res = await fetch(`${API_BASE}/api/facebook/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          approved: true,
           video_url: renderedUrl,
-          caption: fbCaption,
-          hashtags: fbHashtags,
-          post_type: fbPostType,
-          auto_submit: fbAutoSubmit,
+          cover_url: savedCoverUrl,
+          title: fbTitle,
+          hashtags: combinedHashtags,
+          full_description: finalReelDescription,
+          mode: fbMode,
+          page_id: fbPageId,
+          access_token: fbAccessToken,
+          auto_click_publish: true,
         }),
       });
       const data = await res.json();
@@ -165,7 +245,7 @@ export default function CapCutThreadsStudio() {
         alert(data.detail || "Lỗi khi đăng lên Facebook!");
         setFbPublishStatus("");
       } else {
-        setFbPublishStatus(data.message || "Đăng Facebook thành công!");
+        setFbPublishStatus(data.message || "Đã duyệt và đăng bài lên Facebook thành công!");
       }
     } catch {
       alert("Lỗi kết nối tới API đăng Facebook!");
@@ -858,7 +938,7 @@ export default function CapCutThreadsStudio() {
   };
 
   if (currentView === "cover_maker") {
-    return <CoverMaker onBack={() => setCurrentView("editor")} />;
+    return <CoverMaker onBack={() => setCurrentView("editor")} onCoverSaved={(url) => setSavedCoverUrl(url)} />;
   }
   if (currentView === "watermark_studio") {
     return <WatermarkStudio onBack={() => setCurrentView("editor")} />;
@@ -1225,13 +1305,13 @@ export default function CapCutThreadsStudio() {
         </div>
       </div>
 
-      {/* MODAL XUẤT VIDEO */}
+      {/* MODAL XUẤT VIDEO & FORM DUYỆT ĐĂNG FACEBOOK REELS */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`bg-[#16181d] border border-slate-700 w-full ${renderedUrl ? "max-w-2xl" : "max-w-lg"} rounded-2xl p-5 shadow-2xl space-y-4 transition-all`}>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className={`bg-[#16181d] border border-slate-700 w-full ${renderedUrl ? "max-w-3xl" : "max-w-lg"} rounded-2xl p-5 shadow-2xl space-y-4 my-auto max-h-[94vh] overflow-y-auto custom-scrollbar transition-all`}>
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <span className="font-bold text-slate-100 flex items-center gap-2">
-                <Film size={16} className="text-rose-500" /> Xuất Bản Video 9:16
+                <Film size={16} className="text-rose-500" /> Xuất Bản Video 9:16 & Duyệt Đăng Facebook Reels
               </span>
               {!isRendering && (
                 <button
@@ -1312,19 +1392,272 @@ export default function CapCutThreadsStudio() {
                 </div>
               )}
 
+              {/* SAU KHI RENDER XONG: HIỂN THỊ FORM ĐIỀN TIÊU ĐỀ, HASHTAG, ẢNH BÌA & NÚT DUYỆT ĐĂNG */}
               {renderedUrl && (
-                <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-300 text-xs">
-                    <CheckCircle2 size={16} />
-                    <span>Xuất video thành công 100%!</span>
+                <div className="space-y-4 pt-2 border-t border-slate-800">
+                  <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-emerald-300 text-xs font-semibold">
+                      <CheckCircle2 size={16} />
+                      <span>Xuất video hoàn tất 100%! (Chờ bạn kiểm tra Form và bấm Duyệt để đăng Facebook)</span>
+                    </div>
+                    <a
+                      href={renderedUrl}
+                      download
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold flex items-center gap-1 shadow shrink-0"
+                    >
+                      <Download size={12} /> Tải Video Về Máy
+                    </a>
                   </div>
-                  <a
-                    href={renderedUrl}
-                    download
-                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold flex items-center gap-1 shadow"
-                  >
-                    <Download size={12} /> Tải Về
-                  </a>
+
+                  {/* FORM TẠO THƯỚC PHIM FACEBOOK CHUẨN CHẾ ĐỘ CHUYÊN NGHIỆP */}
+                  <div className="bg-[#101217] border border-blue-500/40 rounded-2xl p-4 space-y-3.5 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">
+                          f
+                        </div>
+                        <div>
+                          <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                            Form Tạo Thước Phim Facebook (Chế Độ Chuyên Nghiệp)
+                          </h3>
+                          <p className="text-[10px] text-amber-400 font-medium">
+                            🔒 An toàn: Hệ thống KHÔNG tự ý đăng bài cho tới khi bạn bấm nút "Duyệt & Tự Động Đăng"
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleOpenFbLogin}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 rounded-lg text-[11px] font-semibold transition"
+                        >
+                          Mở Đăng Nhập FB
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowFbApiConfig(!showFbApiConfig)}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-[11px] font-semibold transition"
+                        >
+                          {showFbApiConfig ? "Ẩn Cấu Hình API" : "Cấu Hình Graph API"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {showFbApiConfig && (
+                      <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5 text-xs">
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-400 font-semibold">Phương thức đăng:</span>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              checked={fbMode === "browser"}
+                              onChange={() => setFbMode("browser")}
+                            />
+                            <span className="text-slate-200">Tự động qua Trình duyệt FB Chuyên Nghiệp</span>
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              checked={fbMode === "graph_api"}
+                              onChange={() => setFbMode("graph_api")}
+                            />
+                            <span className="text-slate-200">Facebook Graph API (Token)</span>
+                          </label>
+                        </div>
+
+                        {fbMode === "graph_api" && (
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-1">Page / Professional Account ID:</label>
+                              <input
+                                type="text"
+                                value={fbPageId}
+                                onChange={(e) => setFbPageId(e.target.value)}
+                                placeholder="Nhập ID trang / tài khoản..."
+                                className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-1">Facebook Access Token:</label>
+                              <input
+                                type="password"
+                                value={fbAccessToken}
+                                onChange={(e) => setFbAccessToken(e.target.value)}
+                                placeholder="EAAB..."
+                                className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* CỘT TRÁI (2 PHẦN): FORM TIÊU ĐỀ + FORM HASHTAG + PREVIEW MÔ TẢ THƯỚC PHIM */}
+                      <div className="md:col-span-2 space-y-3">
+                        {/* 1. FORM TIÊU ĐỀ */}
+                        <div>
+                          <label className="text-xs font-bold text-slate-200 block mb-1">
+                            1. Form tiêu đề (Bạn tự nhập):
+                          </label>
+                          <input
+                            type="text"
+                            value={fbTitle}
+                            onChange={(e) => setFbTitle(e.target.value)}
+                            placeholder="Nhập tiêu đề thước phim của bạn tại đây..."
+                            className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl px-3 py-2 text-xs text-white outline-none font-semibold"
+                          />
+                        </div>
+
+                        {/* 2. FORM HASHTAG */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-200 block">
+                            2. Form hashtag (Có sẵn #viral #ThreadsVietNam + Tự bấm chọn):
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={fbBaseHashtags}
+                              onChange={(e) => setFbBaseHashtags(e.target.value)}
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-mono"
+                            />
+                          </div>
+
+                          {/* CÁC NÚT HASHTAG BẤM NHANH */}
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            {presetHashtags.map((tag) => {
+                              const active = fbSelectedTags.includes(tag);
+                              return (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  onClick={() => handleToggleQuickHashtag(tag)}
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold border transition ${
+                                    active
+                                      ? "bg-blue-600 text-white border-blue-400 shadow"
+                                      : "bg-slate-900 text-slate-400 border-slate-700 hover:text-white"
+                                  }`}
+                                >
+                                  {active ? `✓ ${tag}` : `+ ${tag}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Ô NHẬP THÊM HASHTAG TÙY Ý */}
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <input
+                              type="text"
+                              value={fbCustomHashtagInput}
+                              onChange={(e) => setFbCustomHashtagInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddCustomHashtag();
+                                }
+                              }}
+                              placeholder="#(nhập thêm hashtag rồi bấm Thêm)..."
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddCustomHashtag}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg text-xs font-bold"
+                            >
+                              + Bấm Thêm #
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 3. Ô MÔ TẢ THƯỚC PHIM CỦA BẠN (GHÉP THEO ĐÚNG THỨ TỰ) */}
+                        <div>
+                          <label className="text-xs font-bold text-emerald-300 block mb-1">
+                            3. Mô tả thước phim của bạn (Tự động xếp theo đúng thứ tự):
+                          </label>
+                          <textarea
+                            readOnly
+                            rows={4}
+                            value={finalReelDescription}
+                            className="w-full bg-slate-950 border border-emerald-500/40 rounded-xl p-2.5 text-xs text-slate-100 font-medium resize-none outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* CỘT PHẢI (1 PHẦN): FILE PHƯƠNG TIỆN & ẢNH BÌA TỰ ĐỘNG THAY THẾ */}
+                      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col justify-between space-y-2">
+                        <div>
+                          <span className="text-xs font-bold text-slate-200 block mb-2">
+                            Ảnh bìa thước phim (9:16):
+                          </span>
+                          <div className="relative w-full h-48 bg-black rounded-xl overflow-hidden border border-slate-700 flex items-center justify-center">
+                            {savedCoverUrl ? (
+                              <img
+                                src={savedCoverUrl}
+                                alt="Ảnh bìa Reels"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="text-center p-3 text-[11px] text-slate-500">
+                                Chưa có ảnh bìa lưu sẵn. Bạn có thể tạo ở mục "Tạo Ảnh Bìa 9:16" hoặc tải ảnh lên bên dưới.
+                              </div>
+                            )}
+                            <div className="absolute top-2 left-2 bg-black/80 text-white text-[10px] font-bold px-2 py-0.5 rounded border border-white/20">
+                              🖼️ Ảnh bìa
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <input
+                            type="file"
+                            ref={coverUploadInputRef}
+                            onChange={handleUploadCustomCoverInModal}
+                            accept="image/*"
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => coverUploadInputRef.current?.click()}
+                            className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-[11px] font-semibold transition"
+                          >
+                            Thay Ảnh Bìa Khác
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowExportModal(false);
+                              setCurrentView("cover_maker");
+                            }}
+                            className="w-full py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-[11px] font-semibold transition"
+                          >
+                            Mở Studio Tạo Ảnh Bìa
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {fbPublishStatus && (
+                      <div className="p-2.5 bg-blue-950/60 border border-blue-500/50 rounded-xl text-xs text-blue-200 font-medium">
+                        🚀 {fbPublishStatus}
+                      </div>
+                    )}
+
+                    {/* NÚT DUYỆT & ĐĂNG LÊN FACEBOOK (CHỈ KHI BẤM MỚI ĐƯỢC PHÉP ĐĂNG) */}
+                    <button
+                      type="button"
+                      onClick={handleApproveAndPublishFb}
+                      disabled={isPublishingFb}
+                      className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.99] text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-blue-950 flex items-center justify-center gap-2 transition disabled:opacity-50"
+                    >
+                      <CheckCircle2 size={16} />
+                      <span>
+                        {isPublishingFb
+                          ? "Đang Tự Động Tải Video + Ảnh Bìa Lên Facebook..."
+                          : "DUYỆT & TỰ ĐỘNG ĐĂNG VIDEO LÊN FACEBOOK"}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1342,7 +1675,11 @@ export default function CapCutThreadsStudio() {
                 disabled={isRendering}
                 className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white rounded-xl font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-rose-950 disabled:opacity-50 text-xs"
               >
-                {isRendering ? `Đang Render ${renderProgress}%...` : "Bắt Đầu Xuất Bản"}
+                {isRendering
+                  ? `Đang Render ${renderProgress}%...`
+                  : renderedUrl
+                  ? "Render Xuất Lại Video Mới"
+                  : "Bắt Đầu Xuất Bản"}
               </button>
             </div>
           </div>
@@ -1351,7 +1688,3 @@ export default function CapCutThreadsStudio() {
     </div>
   );
 }
-
-
-
-
